@@ -188,26 +188,35 @@ function adaptive_kink_A_of_t(; Hamiltonian::AbstractMatrix{ComplexF64}, β::Flo
                 if abs(val) ≤ extraargs.cutoff
                     continue
                 end
-                states = vcat(reverse(bp), fp)
+
+                @init states = zeros(Int64, npoints)
+                @init ks     = zeros(Int64, npoints)
+                @init svecs  = zeros(Float64, npoints)
+
+                idx = 1
+                @inbounds for k in length(bp):-1:1
+                    states[idx] = bp[k]
+                    idx += 1
+                end
+                @inbounds for k in 1:length(fp)
+                    states[idx] = fp[k]
+                    idx += 1
+                end
+
                 infl = 0.0 + 0.0im
                 for nb = 1:nbaths
                     nnonzeros = 0
-                    for s in states
-                        if svec[nb, s] != 0
+                    for k in 1:npoints
+                        s = states[k]
+                        sv = svec[nb, s]
+                        if sv != 0
                             nnonzeros += 1
+                            ks[nnonzeros] = k
+                            svecs[nnonzeros] = sv
                         end
                     end
-                    ks = zeros(Int64, nnonzeros)
-                    svecs = zeros(nnonzeros)
-                    l = 1
-                    for (k, s) in enumerate(states)
-                        if svec[nb, s] != 0
-                            svecs[l] = svec[nb, s]
-                            ks[l] = k
-                            l += 1
-                        end
-                    end
-                    for (i, k) in enumerate(ks)
+                    for i in 1:nnonzeros
+                        k = ks[i]
                         for kp = 1:i
                             infl -= Bmat[nb][k, ks[kp]] * svecs[i] * svecs[kp]
                         end

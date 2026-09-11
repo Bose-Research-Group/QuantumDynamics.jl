@@ -95,41 +95,131 @@ calculate_num_kinks(path) = sum(path[1:end-1] .!= path[2:end])
 
 filter_propagator(U, prop_cutoff) = [filter(x -> x!=j, findall(abs.(U[:, j]) / abs(U[j, j]) .≥ prop_cutoff)) for j in axes(U, 2)]
 
-function generate_paths_kink_limit(prev_paths::Vector{Vector{UInt8}}, prev_amps::Vector{ComplexF64}, num_kinks, sdim, U, prop_cutoff, cutoff)
-    path_length = length(prev_paths[1]) + 1
-    numpaths = length(prev_paths)
-    sU = U[path_length - 1, :, :]
-    filter_inds = filter_propagator(sU, prop_cutoff)
-    max_spawns = maximum(length.(filter_inds)) + 1
-    new_paths = Vector{Vector{UInt8}}(undef, numpaths * max_spawns)
-    new_amps = Vector{ComplexF64}(undef, numpaths * max_spawns)
-    numpaths = 0
-    @inbounds for (p, a) in zip(prev_paths, prev_amps)
-        if abs(a) ≥ cutoff
-            @inbounds pend = p[end]
-            @inbounds nokinkamp = a * sU[pend, pend]
-            if abs(nokinkamp) ≥ cutoff
-                numpaths += 1
-                new_paths[numpaths] = [p..., pend]
-                new_amps[numpaths] = nokinkamp
-            end
-            if calculate_num_kinks(p) < num_kinks
-                for l in filter_inds[pend]
-                    @inbounds na = a * sU[l, pend]
-                    if abs(na) ≥ cutoff
-                        numpaths += 1
-                        new_paths[numpaths] = [p..., l]
-                        new_amps[numpaths] = na
-                    end
-                end
-            end
-        end
+# function generate_paths_kink_limit(prev_paths::Vector{Vector{UInt8}}, prev_amps::Vector{ComplexF64}, num_kinks, sdim, U, prop_cutoff, cutoff)
+#     path_length = length(prev_paths[1]) + 1
+#     numpaths = length(prev_paths)
+#     sU = U[path_length - 1, :, :]
+#     filter_inds = filter_propagator(sU, prop_cutoff)
+#     max_spawns = maximum(length.(filter_inds)) + 1
+#     new_paths = Vector{Vector{UInt8}}(undef, numpaths * max_spawns)
+#     new_amps = Vector{ComplexF64}(undef, numpaths * max_spawns)
+#     numpaths = 0
+#     @inbounds for (p, a) in zip(prev_paths, prev_amps)
+#         if abs(a) ≥ cutoff
+#             @inbounds pend = p[end]
+#             @inbounds nokinkamp = a * sU[pend, pend]
+#             if abs(nokinkamp) ≥ cutoff
+#                 numpaths += 1
+#                 new_paths[numpaths] = [p..., pend]
+#                 new_amps[numpaths] = nokinkamp
+#             end
+#             if calculate_num_kinks(p) < num_kinks
+#                 for l in filter_inds[pend]
+#                     @inbounds na = a * sU[l, pend]
+#                     if abs(na) ≥ cutoff
+#                         numpaths += 1
+#                         new_paths[numpaths] = [p..., l]
+#                         new_amps[numpaths] = na
+#                     end
+#                 end
+#             end
+#         end
+#     end
+#     new_paths[1:numpaths], new_amps[1:numpaths]
+# end
+# 
+# function generate_paths_kink_limit(start::UInt8, length, num_kinks, sdim, U, prop_cutoff, cutoff, right_to_left=true)
+#     if num_kinks == 0
+#         path = repeat([start], length)
+#         amplitude = 1.0 + 0.0im
+#         if right_to_left
+#             for (step, (si, sf)) in enumerate(zip(path, path[2:end]))
+#                 amplitude *= U[step, sf, si]
+#             end
+#         else
+#             for (step, (si, sf)) in enumerate(zip(path, path[2:end]))
+#                 amplitude *= U[step, si, sf]
+#             end
+#         end
+#         [path], [amplitude]
+#     elseif length == 1
+#         [[start]], [1.0 + 0.0im]
+#     else
+#         full_kink_paths, fkamps = generate_paths_kink_limit(start, length-1, num_kinks, sdim, U, prop_cutoff, cutoff)
+#         one_less_kink, olamps = generate_paths_kink_limit(start, length-1, num_kinks-1, sdim, U, prop_cutoff, cutoff)
+#         paths_fk = Vector{Vector{UInt8}}()
+#         amps_fk = Vector{ComplexF64}()
+#         paths_ol = Vector{Vector{UInt8}}()
+#         amps_ol = Vector{ComplexF64}()
+#         if right_to_left
+#             @sync begin
+#                 Threads.@spawn for (f, a) in zip(full_kink_paths, fkamps)
+#                     if abs(a) ≥ cutoff
+#                         push!(paths_fk, [f..., f[end]])
+#                         push!(amps_fk, a * U[length-1, f[end], f[end]])
+#                     end
+#                 end
+#                 Threads.@spawn for (f, a) in zip(one_less_kink, olamps)
+#                     if abs(a) ≥ cutoff
+#                         nonkinkamp = U[length-1, f[end], f[end]]
+#                         for k = 1:sdim
+#                             stepamp = U[length-1, k, f[end]]
+#                             if k != f[end] && abs(stepamp) ≥ prop_cutoff * abs(nonkinkamp)
+#                                 push!(paths_ol, [f..., k])
+#                                 push!(amps_ol, a * stepamp)
+#                             end
+#                         end
+#                     end
+#                 end
+#             end
+#         else
+#             @sync begin
+#                 Threads.@spawn for (f, a) in zip(full_kink_paths, fkamps)
+#                     if abs(a) ≥ cutoff
+#                         push!(paths_fk, [f..., f[end]])
+#                         push!(amps_fk, a * U[length-1, f[end], f[end]])
+#                     end
+#                 end
+#                 Threads.@spawn for (f, a) in zip(one_less_kink, olamps)
+#                     if abs(a) ≥ cutoff
+#                         nonkinkamp = U[length-1, f[end], f[end]]
+#                         for k = 1:sdim
+#                             stepamp = U[length-1, f[end], k]
+#                             if k != f[end] && abs(stepamp) ≥ prop_cutoff * abs(nonkinkamp)
+#                                 push!(paths_ol, [f..., k])
+#                                 push!(amps_ol, a * stepamp)
+#                             end
+#                         end
+#                     end
+#                 end
+#             end
+#         end
+#         vcat(paths_fk, paths_ol), vcat(amps_fk, amps_ol)
+#     end
+# end
+
+function generate_paths_kink_limit(length, num_kinks, sdim, U, prop_cutoff, cutoff)
+    paths = Vector{Vector{UInt8}}()
+    amps = Vector{ComplexF64}()
+    for j = UInt8(1):UInt8(sdim)
+        p, a = generate_paths_kink_limit(j, length, num_kinks, sdim, U, prop_cutoff, cutoff)
+        append!(paths, p)
+        append!(amps, a)
     end
-    new_paths[1:numpaths], new_amps[1:numpaths]
+    paths, amps
 end
 
 function generate_paths_kink_limit(start::UInt8, length, num_kinks, sdim, U, prop_cutoff, cutoff, right_to_left=true)
-    if num_kinks == 0
+    cache = Dict{Tuple{Int,Int}, Tuple{Vector{Vector{UInt8}}, Vector{ComplexF64}}}()
+    return _gen_paths_memo!(cache, start, length, num_kinks, sdim, U, prop_cutoff, cutoff, right_to_left)
+end
+
+function _gen_paths_memo!(cache, start::UInt8, length, num_kinks, sdim, U, prop_cutoff, cutoff, right_to_left)
+    key = (length, num_kinks)
+    cached = get(cache, key, nothing)
+    cached !== nothing && return cached
+
+    result = if num_kinks == 0
         path = repeat([start], length)
         amplitude = 1.0 + 0.0im
         if right_to_left
@@ -141,70 +231,43 @@ function generate_paths_kink_limit(start::UInt8, length, num_kinks, sdim, U, pro
                 amplitude *= U[step, si, sf]
             end
         end
-        [path], [amplitude]
+        ([path], [amplitude])
     elseif length == 1
-        [[start]], [1.0 + 0.0im]
+        ([[start]], [1.0 + 0.0im])
     else
-        full_kink_paths, fkamps = generate_paths_kink_limit(start, length-1, num_kinks, sdim, U, prop_cutoff, cutoff)
-        one_less_kink, olamps = generate_paths_kink_limit(start, length-1, num_kinks-1, sdim, U, prop_cutoff, cutoff)
-        paths_fk = Vector{Vector{UInt8}}()
-        amps_fk = Vector{ComplexF64}()
-        paths_ol = Vector{Vector{UInt8}}()
-        amps_ol = Vector{ComplexF64}()
-        if right_to_left
-            @sync begin
-                Threads.@spawn for (f, a) in zip(full_kink_paths, fkamps)
-                    if abs(a) ≥ cutoff
-                        push!(paths_fk, [f..., f[end]])
-                        push!(amps_fk, a * U[length-1, f[end], f[end]])
-                    end
-                end
-                Threads.@spawn for (f, a) in zip(one_less_kink, olamps)
-                    if abs(a) ≥ cutoff
-                        nonkinkamp = U[length-1, f[end], f[end]]
-                        for k = 1:sdim
-                            stepamp = U[length-1, k, f[end]]
-                            if k != f[end] && abs(stepamp) ≥ prop_cutoff * abs(nonkinkamp)
-                                push!(paths_ol, [f..., k])
-                                push!(amps_ol, a * stepamp)
-                            end
-                        end
-                    end
-                end
+        full_kink_paths, fkamps = _gen_paths_memo!(cache, start, length - 1, num_kinks, sdim, U, prop_cutoff, cutoff, right_to_left)
+        one_less_kink, olamps   = _gen_paths_memo!(cache, start, length - 1, num_kinks - 1, sdim, U, prop_cutoff, cutoff, right_to_left)
+
+        paths_fk = Vector{Vector{UInt8}}(); amps_fk = Vector{ComplexF64}()
+        # sizehint!(paths_fk, length(full_kink_paths)); sizehint!(amps_fk, length(full_kink_paths))
+
+        paths_ol = Vector{Vector{UInt8}}(); amps_ol = Vector{ComplexF64}()
+        # sizehint!(paths_ol, length(one_less_kink) * sdim); sizehint!(amps_ol, length(one_less_kink) * sdim)
+
+        for (f, a) in zip(full_kink_paths, fkamps)
+            if abs(a) ≥ cutoff
+                push!(paths_fk, [f..., f[end]])
+                push!(amps_fk, a * U[length - 1, f[end], f[end]])
             end
-        else
-            @sync begin
-                Threads.@spawn for (f, a) in zip(full_kink_paths, fkamps)
-                    if abs(a) ≥ cutoff
-                        push!(paths_fk, [f..., f[end]])
-                        push!(amps_fk, a * U[length-1, f[end], f[end]])
-                    end
-                end
-                Threads.@spawn for (f, a) in zip(one_less_kink, olamps)
-                    if abs(a) ≥ cutoff
-                        nonkinkamp = U[length-1, f[end], f[end]]
-                        for k = 1:sdim
-                            stepamp = U[length-1, f[end], k]
-                            if k != f[end] && abs(stepamp) ≥ prop_cutoff * abs(nonkinkamp)
-                                push!(paths_ol, [f..., k])
-                                push!(amps_ol, a * stepamp)
-                            end
-                        end
+        end
+
+        for (f, a) in zip(one_less_kink, olamps)
+            if abs(a) ≥ cutoff
+                lastf = f[end]
+                nonkinkamp = U[length - 1, lastf, lastf]
+                for k = 1:sdim
+                    stepamp = right_to_left ? U[length - 1, k, lastf] : U[length - 1, lastf, k]
+                    if k != lastf && abs(stepamp) ≥ prop_cutoff * abs(nonkinkamp)
+                        push!(paths_ol, [f..., k])
+                        push!(amps_ol, a * stepamp)
                     end
                 end
             end
         end
-        vcat(paths_fk, paths_ol), vcat(amps_fk, amps_ol)
-    end
-end
 
-function generate_paths_kink_limit(length, num_kinks, sdim, U, prop_cutoff, cutoff)
-    paths = Vector{Vector{UInt8}}()
-    amps = Vector{ComplexF64}()
-    for j = UInt8(1):UInt8(sdim)
-        p, a = generate_paths_kink_limit(j, length, num_kinks, sdim, U, prop_cutoff, cutoff)
-        append!(paths, p)
-        append!(amps, a)
+        (vcat(paths_fk, paths_ol), vcat(amps_fk, amps_ol))
     end
-    paths, amps
+
+    cache[key] = result
+    result
 end
