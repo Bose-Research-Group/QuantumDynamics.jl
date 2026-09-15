@@ -41,7 +41,8 @@ function A_of_t(; Hamiltonian::AbstractMatrix{ComplexF64}, β::Float64, t::Float
     num_paths = sdim^npoints
     @inbounds begin
         @floop exec for path_num = 1:num_paths
-            @init states = Utilities.unhash_path(path_num, npoints - 1, sdim)
+            @init states = Vector{Int}(undef, npoints)
+            # @init states = Utilities.unhash_path(path_num, npoints - 1, sdim)
             Utilities.unhash_path!(states, path_num, npoints-1, sdim)
             # e^{-i H tc} A e^{i H tc}
             val = A[states[nfor+1], states[nfor]]
@@ -81,14 +82,14 @@ function A_of_t(; Hamiltonian::AbstractMatrix{ComplexF64}, β::Float64, t::Float
                     end
                 end
             end
-            @reduce num_paths = 0 + 1
+            @reduce num_paths_local = 0 + 1
             @init tmpA = zeros(ComplexF64, sdim, sdim)
             tmpA .= 0
             @inbounds tmpA[states[end], states[1]] = val * exp(infl)
             @reduce At = zeros(ComplexF64, sdim, sdim) .+ tmpA
         end
     end
-    At, num_paths
+    At, num_paths_local
 end
 
 """
@@ -175,7 +176,6 @@ function adaptive_kink_A_of_t(; Hamiltonian::AbstractMatrix{ComplexF64}, β::Flo
     end
     npoints = 2N+2
     Bmat = [BMatrix.get_B_matrix(J, β, N, tarr) for J in Jw]
-    num_paths = sdim^npoints
     nkinks = extraargs.num_kinks==-1 ? N : extraargs.num_kinks
     Attotal = zero(A)
     total_num_paths = 0

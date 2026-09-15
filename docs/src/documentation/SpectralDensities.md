@@ -43,6 +43,17 @@ SpectralDensities.DrudeLorentz
 ```
 
 ```@docs
+SpectralDensities.UnderdampedBrownian
+```
+
+### Exponential Decompositions
+HEOM requires exponential decompositions of the bath response function. This information is stored in
+```@docs
+SpectralDensities.ExponentialDecomposition
+```
+
+Currently, Matsubara and Pade schemes for decomposition is supported:
+```@docs
 SpectralDensities.matsubara_decomposition
 ```
 

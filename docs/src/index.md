@@ -2,12 +2,12 @@
 
 | **Documentation** | **Build Status** | **Citation** |
 |:-----------------:|:---------:|:-------------:|
-|[![Dev](https://img.shields.io/badge/docs-dev-blue.svg)](https://amartyabose.github.io/QuantumDynamics.jl/dev/)|[![Run tests](https://github.com/amartyabose/QuantumDynamics.jl/actions/workflows/test.yml/badge.svg?branch=main)](https://github.com/amartyabose/QuantumDynamics.jl/actions/workflows/test.yml)|[![DOI](https://img.shields.io/badge/DOI-10.1063/5.0151483-blue.svg)](https://doi.org/10.1063/5.0151483)|
+|[![Dev](https://img.shields.io/badge/docs-dev-blue.svg)](https://Bose-Research-Group.github.io/QuantumDynamics.jl/dev/)|[![Run tests](https://github.com/Bose-Research-Group/QuantumDynamics.jl/actions/workflows/test.yml/badge.svg?branch=main)](https://github.com/Bose-Research-Group/QuantumDynamics.jl/actions/workflows/test.yml)|[![DOI](https://img.shields.io/badge/DOI-10.1063/5.0151483-blue.svg)](https://doi.org/10.1063/5.0151483)|
 
 QuantumDynamics is an open-source ecosystem for the simulation of dynamics of open quantum systems. Though written with performance in mind, QuantumDynamics provides a high throughput platform for experimentation with state-of-the-art approaches to method development. The ecosystem comprises of two fundamental parts:
 - The base library providing implementations of various methods
 - A user-facing application to leverage the most-common use cases of the library
-This package provides the library, while the [QuantumDynamicsCLI.jl](https://github.com/amartyabose/QuantumDynamicsCLI.jl) package implements the application. The documentation for QuantumDynamicsCLI can also be found [online](https://amartyabose.github.io/QuantumDynamicsCLI.jl/dev/index.html).
+This package provides the library, while the [QuantumDynamicsCLI.jl](https://github.com/Bose-Research-Group/QuantumDynamicsCLI.jl) package implements the application. The documentation for QuantumDynamicsCLI can also be found [online](https://Bose-Research-Group.github.io/QuantumDynamicsCLI.jl/dev/index.html).
 
 The primary problem that QuantumDynamics is aimed at solving is the simulation of the dynamics of a relatively small quantum system coupled to a dissipative environment. Such a system-solvent decomposed problem can typically be represented by the Hamiltonian:
 ```math
@@ -43,7 +43,7 @@ This installs the latest stable release of QuantumDynamics.jl. Currently new fea
 
 ```
 julia> ]
-pkg> add https://github.com/amartyabose/QuantumDynamics.jl
+pkg> add https://github.com/Bose-Research-Group/QuantumDynamics.jl
 ```
 
 Various parts of QuantumDynamics.jl depends on the BLAS and LAPACK libraries for efficient implementation of linear algebra routines. Julia generally uses OpenBLAS as a default implementation. The most common alternative is Intel's Math Kernel Library (MKL), which can be used with QuantumDynamics.jl by first installing MKL.jl. In the actual script, MKL.jl should be loaded before loading QuantumDynamics.jl:

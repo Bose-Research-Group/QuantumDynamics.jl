@@ -37,7 +37,7 @@ following general form for an arbitrary operator `Ω`
 \Omega_{\rm mapped} = \sum_j \Omega_{jj} \frac{X_j^2 + P_j^2 - \gamma}{2}
 ```
 where `γ` is the zero-point energy parameter, which is obtained using
-the system `sys`'s [QuantumDynamics.Systems.γ](@ref) method.
+the system `sys`'s [`Systems.γ`](@ref) method.
 """
 function transform_op(sys::MappedSystem, op::AbstractVector{<:Number},
                       X::AbstractVector{<:Real}, P::AbstractVector{<:Real})
@@ -58,7 +58,7 @@ general form
 ```
 where `γ` and `δⱼₖ` are the zero-point energy parameter and the
 Kronecker delta respectively.  The former is obtained using the system
-`sys`'s [QuantumDynamics.Systems.γ](@ref) method.
+`sys`'s [`Systems.γ`](@ref) method.
 """
 function transform_op(sys::MappedSystem, op::AbstractMatrix{<:Number},
                       X::AbstractVector{<:Real}, P::AbstractVector{<:Real})
