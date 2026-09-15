@@ -1,8 +1,6 @@
 "Collection of spectral densities commonly used to describe solvents."
 module SpectralDensities
 
-using Interpolations
-
 using DelimitedFiles
 using LinearAlgebra
 using ..Utilities
