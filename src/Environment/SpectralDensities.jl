@@ -156,6 +156,16 @@ evaluate(sd::UnderdampedBrownian, ω::Real) = 2 * sd.λ / sd.Δs^2 * sign(ω) * 
 eval_spectrum_at_zero(sd::UnderdampedBrownian) = 4 * sd.λ * sd.γ / (sd.Δs^2 * sd.ω0^2)
 Δk_target(sd::SpectralDensities.UnderdampedBrownian, β) = 2 * sd.λ * sd.γ / (sd.Δs^2 * sd.ω0^2 * β)
 
+"""
+    ExponentialDecomposition
+Contains the data for the representation of a bath correlation function as a sum of exponentials with complex rates. Used for HEOM.
+
+The struct contains:
+- `ν`: rates
+- `c`: coefficients
+- `ctilde`: coefficients of the complex conjugate rate mode
+- `scale`: HEOM scaling factor
+"""
 struct ExponentialDecomposition
     ν::Vector{ComplexF64}
     c::Vector{ComplexF64}

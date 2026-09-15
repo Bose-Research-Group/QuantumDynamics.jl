@@ -31,6 +31,8 @@ function A_of_t(; Hamiltonian::AbstractMatrix{ComplexF64}, β::Float64, t::Float
         (ComplexPISetup.get_complex_time_propagator(Hamiltonian, β, t, N), ComplexPISetup.get_complex_time_array(t, β, N))
     elseif type_corr == "asymm"
         (ComplexPISetup.get_asymm_time_propagator(Hamiltonian, β, t, N), ComplexPISetup.get_asymm_time_array(t, β, N))
+    else
+        error("Unknown type_corr = $(type_corr); expected symm or asymm")
     end
     npoints = 2N+2
     Bmat = [BMatrix.get_B_matrix(J, β, N, tarr) for J in Jw]
@@ -39,7 +41,8 @@ function A_of_t(; Hamiltonian::AbstractMatrix{ComplexF64}, β::Float64, t::Float
     num_paths = sdim^npoints
     @inbounds begin
         @floop exec for path_num = 1:num_paths
-            @init states = Utilities.unhash_path(path_num, npoints - 1, sdim)
+            @init states = Vector{Int}(undef, npoints)
+            # @init states = Utilities.unhash_path(path_num, npoints - 1, sdim)
             Utilities.unhash_path!(states, path_num, npoints-1, sdim)
             # e^{-i H tc} A e^{i H tc}
             val = A[states[nfor+1], states[nfor]]
@@ -79,14 +82,14 @@ function A_of_t(; Hamiltonian::AbstractMatrix{ComplexF64}, β::Float64, t::Float
                     end
                 end
             end
-            @reduce num_paths = 0 + 1
+            @reduce num_paths_local = 0 + 1
             @init tmpA = zeros(ComplexF64, sdim, sdim)
             tmpA .= 0
             @inbounds tmpA[states[end], states[1]] = val * exp(infl)
             @reduce At = zeros(ComplexF64, sdim, sdim) .+ tmpA
         end
     end
-    At, num_paths
+    At, num_paths_local
 end
 
 """
@@ -162,6 +165,8 @@ function adaptive_kink_A_of_t(; Hamiltonian::AbstractMatrix{ComplexF64}, β::Flo
         (ComplexPISetup.get_complex_time_propagator(Hamiltonian, β, t, N), ComplexPISetup.get_complex_time_array(t, β, N))
     elseif type_corr == "asymm"
         (ComplexPISetup.get_asymm_time_propagator(Hamiltonian, β, t, N), ComplexPISetup.get_asymm_time_array(t, β, N))
+    else
+        error("Unknown type_corr = $(type_corr); expected symm or asymm")
     end
     Us = zeros(ComplexF64, N, sdim, sdim)
     Udags = zeros(ComplexF64, N, sdim, sdim)
@@ -171,7 +176,6 @@ function adaptive_kink_A_of_t(; Hamiltonian::AbstractMatrix{ComplexF64}, β::Flo
     end
     npoints = 2N+2
     Bmat = [BMatrix.get_B_matrix(J, β, N, tarr) for J in Jw]
-    num_paths = sdim^npoints
     nkinks = extraargs.num_kinks==-1 ? N : extraargs.num_kinks
     Attotal = zero(A)
     total_num_paths = 0
@@ -184,26 +188,35 @@ function adaptive_kink_A_of_t(; Hamiltonian::AbstractMatrix{ComplexF64}, β::Flo
                 if abs(val) ≤ extraargs.cutoff
                     continue
                 end
-                states = vcat(reverse(bp), fp)
+
+                @init states = zeros(Int64, npoints)
+                @init ks     = zeros(Int64, npoints)
+                @init svecs  = zeros(Float64, npoints)
+
+                idx = 1
+                @inbounds for k in length(bp):-1:1
+                    states[idx] = bp[k]
+                    idx += 1
+                end
+                @inbounds for k in 1:length(fp)
+                    states[idx] = fp[k]
+                    idx += 1
+                end
+
                 infl = 0.0 + 0.0im
                 for nb = 1:nbaths
                     nnonzeros = 0
-                    for s in states
-                        if svec[nb, s] != 0
+                    for k in 1:npoints
+                        s = states[k]
+                        sv = svec[nb, s]
+                        if sv != 0
                             nnonzeros += 1
+                            ks[nnonzeros] = k
+                            svecs[nnonzeros] = sv
                         end
                     end
-                    ks = zeros(Int64, nnonzeros)
-                    svecs = zeros(nnonzeros)
-                    l = 1
-                    for (k, s) in enumerate(states)
-                        if svec[nb, s] != 0
-                            svecs[l] = svec[nb, s]
-                            ks[l] = k
-                            l += 1
-                        end
-                    end
-                    for (i, k) in enumerate(ks)
+                    for i in 1:nnonzeros
+                        k = ks[i]
                         for kp = 1:i
                             infl -= Bmat[nb][k, ks[kp]] * svecs[i] * svecs[kp]
                         end

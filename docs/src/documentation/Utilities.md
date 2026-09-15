@@ -113,6 +113,10 @@ Utilities.nh_commutator!
 ```
 
 ```@docs
+Utilities.double_commutator!
+```
+
+```@docs
 Utilities.calculate_Liouvillian
 ```
 
