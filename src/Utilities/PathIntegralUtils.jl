@@ -95,39 +95,41 @@ calculate_num_kinks(path) = sum(path[1:end-1] .!= path[2:end])
 
 filter_propagator(U, prop_cutoff) = [filter(x -> x!=j, findall(abs.(U[:, j]) / abs(U[j, j]) .≥ prop_cutoff)) for j in axes(U, 2)]
 
-# function generate_paths_kink_limit(prev_paths::Vector{Vector{UInt8}}, prev_amps::Vector{ComplexF64}, num_kinks, sdim, U, prop_cutoff, cutoff)
-#     path_length = length(prev_paths[1]) + 1
-#     numpaths = length(prev_paths)
-#     sU = U[path_length - 1, :, :]
-#     filter_inds = filter_propagator(sU, prop_cutoff)
-#     max_spawns = maximum(length.(filter_inds)) + 1
-#     new_paths = Vector{Vector{UInt8}}(undef, numpaths * max_spawns)
-#     new_amps = Vector{ComplexF64}(undef, numpaths * max_spawns)
-#     numpaths = 0
-#     @inbounds for (p, a) in zip(prev_paths, prev_amps)
-#         if abs(a) ≥ cutoff
-#             @inbounds pend = p[end]
-#             @inbounds nokinkamp = a * sU[pend, pend]
-#             if abs(nokinkamp) ≥ cutoff
-#                 numpaths += 1
-#                 new_paths[numpaths] = [p..., pend]
-#                 new_amps[numpaths] = nokinkamp
-#             end
-#             if calculate_num_kinks(p) < num_kinks
-#                 for l in filter_inds[pend]
-#                     @inbounds na = a * sU[l, pend]
-#                     if abs(na) ≥ cutoff
-#                         numpaths += 1
-#                         new_paths[numpaths] = [p..., l]
-#                         new_amps[numpaths] = na
-#                     end
-#                 end
-#             end
-#         end
-#     end
-#     new_paths[1:numpaths], new_amps[1:numpaths]
-# end
-# 
+function generate_paths_kink_limit(prev_paths::Vector{Vector{UInt8}}, prev_amps::Vector{ComplexF64}, num_kinks, sdim, U, prop_cutoff, cutoff)
+    path_length = length(prev_paths[1]) + 1
+    numpaths = length(prev_paths)
+    sU = @view U[path_length - 1, :, :]
+    filter_inds = filter_propagator(sU, prop_cutoff)
+    max_spawns = maximum(length.(filter_inds)) + 1
+    new_paths = Vector{Vector{UInt8}}(undef, numpaths * max_spawns)
+    new_amps = Vector{ComplexF64}(undef, numpaths * max_spawns)
+    numpaths = 0
+    @inbounds for (p, a) in zip(prev_paths, prev_amps)
+        if abs(a) ≥ cutoff
+            @inbounds pend = p[end]
+            @inbounds nokinkamp = a * sU[pend, pend]
+            if abs(nokinkamp) ≥ cutoff
+                numpaths += 1
+                new_paths[numpaths] = [p..., pend]
+                new_amps[numpaths] = nokinkamp
+            end
+            if calculate_num_kinks(p) < num_kinks
+                for l in filter_inds[pend]
+                    @inbounds na = a * sU[l, pend]
+                    if abs(na) ≥ cutoff
+                        numpaths += 1
+                        new_paths[numpaths] = [p..., l]
+                        new_amps[numpaths] = na
+                    end
+                end
+            end
+        end
+    end
+    resize!(new_paths, numpaths)
+    resize!(new_amps, numpaths)
+    new_paths, new_amps
+end
+ 
 # function generate_paths_kink_limit(start::UInt8, length, num_kinks, sdim, U, prop_cutoff, cutoff, right_to_left=true)
 #     if num_kinks == 0
 #         path = repeat([start], length)

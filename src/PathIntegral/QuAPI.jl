@@ -639,8 +639,10 @@ function propagate_kink(; fbU::AbstractArray{ComplexF64,3}, Jw::Vector{T}, ρ0::
                         continue
                     end
                     bare_amplitude = fa * conj(ba)
-                    @init states = zeros(UInt16, i+1)
-                    states .= (fp.-1) .* sdim .+ bp
+                    @init states = Vector{UInt16}(undef, i+1)
+                    @inbounds for j in eachindex(fp)
+                        states[j] = (fp[j] - 1) * sdim + bp[j]
+                    end
                     @reduce num_paths = 0 + 1
                     for (bn, bη) in enumerate(η)
                         @inbounds bare_amplitude *= get_path_influence(bη, bn, state_values, states, false)
