@@ -56,42 +56,43 @@ Systems.transform_op(sys::LSCSys, op::Union{AbstractVector,AbstractMatrix}, ps::
 sampling_weight(::LSCSys, ρ₀::AbstractMatrix{<:Complex}, ps::LSCSysPhaseSpace) =
     4 * (ps.X' * ρ₀ * ps.X + ps.P' * ρ₀ * ps.P + im * (ps.X' * ρ₀ * ps.P - ps.P' * ρ₀ * ps.X) - tr(ρ₀) / 2)
 
-function build_ρ!(sys::LSCSys, XP::AbstractVector{<:Real}, ρ::AbstractMatrix{<:Complex})
-    @views X, P = XP[1:sys.d], XP[sys.d+1:2sys.d]
+function build_ρ!(sys::LSCSys, X::AbstractVector{<:Real}, P::AbstractVector{<:Real}, ρ::AbstractMatrix{<:Complex})
     ρ .= (X * X' + P * P' + im * (P * X' - X * P') - 0.5Id(sys.d))
 end
 
 function propagate_trajectory(sys::LSCSys, sps0::LSCSysPhaseSpace,
                               bps0::Solvents.PhaseSpace, dt::Real, ntimes::Integer)
-    XP = [ sps0.X; sps0.P ]
-    bps = bps0
+    X = sps0.X
+    P = sps0.P
+    buf = similar(sps0.X)
+    bps₀ = bps0
+    bpsₙ = typeof(bps0)(similar.(bps0.q), similar.(bps0.p))
     d = sys.d
 
     ρ = zeros(ComplexF64, ntimes+1,d,d)
-    @views build_ρ!(sys, XP, ρ[1,:,:])
+    w₀ = sampling_weight(sys, sys.ρ₀, sps0)
+    @views build_ρ!(sys, X, P, ρ[1,:,:])
 
     dt2 = dt/2
     bs = sys.bath
-    svecs = map(Diagonal, bs.s)
-    LXP = zeros(2d,2d)
+    A = zeros(d,d)
     sc = similar.(bs.c)
+    Systems.Fbath!(sys, sps0, sc)
+    sps = LSCSysPhaseSpace(X, P)
     @inbounds for t in 2:ntimes+1
-        sps = LSCSysPhaseSpace(XP[1:d], XP[2:d])
+        Solvents.propagate_forced_bath!(bs, bps₀, bpsₙ, sc, dt2, 1)
+
+        sinA, cosA = Systems.get_propagator(sys, bpsₙ, A, dt)
+        Systems.apply_propagator!(sys, sps, sinA, cosA, buf)
+
         Systems.Fbath!(sys, sps, sc)
-        _, bps = Solvents.propagate_forced_bath(bs, bps, sc, dt2, 1)
+        Solvents.propagate_forced_bath!(bs, bpsₙ, bps₀, sc, dt2, 1)
 
-        LXP[1:d,d+1:2d] = @views sys.h - mapreduce((b, x) -> sum(bs.c[b] .* x) .* svecs[b], +, 1:length(bs), bps.q)
-        LXP[d+1:2d,1:d] = -LXP[1:d,d+1:2d]
-        XP = exp(LXP * dt) * XP
-
-        sps = LSCSysPhaseSpace(XP[1:d], XP[2:d])
-        Systems.Fbath!(sys, sps, sc)
-        _, bps = Solvents.propagate_forced_bath(bs, bps, sc, dt2, 1)
-
-        @views build_ρ!(sys, XP, ρ[t,:,:])
+        @views build_ρ!(sys, X, P, ρ[t,:,:])
     end
+    ρ .*= w₀
 
-    sampling_weight(sys, sys.ρ₀, sps0) .* ρ
+    ρ
 end
 
 function propagate_trajectories(sys::LSCSys, dt::Real, ntimes::Integer;
@@ -111,7 +112,7 @@ function propagate_trajectories(sys::LSCSys, dt::Real, ntimes::Integer;
     stats = @timed Threads.@threads for (sps0, bps0) in sys
         ρᵢ = propagate_trajectory(sys, sps0, bps0, dt, ntimes)
         lock(mutlock) do
-            ρ += ρᵢ
+            ρ .+= ρᵢ
             ndone += 1
             verbose && ndone % nthreads == 0 &&
                 @info "Trajectories complete: $(100ndone / length(sys))%"
