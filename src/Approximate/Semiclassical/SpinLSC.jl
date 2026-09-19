@@ -242,8 +242,8 @@ function propagate_trajectories(sys::SpinLSCSys, dt::Real, ntimes::Integer;
     stats = @timed Threads.@threads for (sps0, bps0) in sys
         U0eᵢ, ρᵢ = propagate_trajectory(sys, sps0, bps0, dt, ntimes, build_dynamical_map)
         lock(mutlock) do
-            isnothing(U0e) || (U0e += U0eᵢ)
-            isnothing(ρ)   || (ρ += ρᵢ)
+            isnothing(U0e) || (U0e .+= U0eᵢ)
+            isnothing(ρ)   || (ρ .+= ρᵢ)
             ndone += 1
             verbose && ndone % nthreads == 0 &&
                 @info "Trajectories complete: $(100ndone / length(sys))%"
@@ -253,7 +253,7 @@ function propagate_trajectories(sys::SpinLSCSys, dt::Real, ntimes::Integer;
         "Time taken = $(round(stats.time; digits=3)) sec; memory allocated = $(round(stats.bytes / 1e9; digits=3)) GB; gc time = $(round(stats.gctime; digits=3)) sec"
 
     if !isnothing(U0e)
-        U0e /= length(sys)
+        U0e ./= length(sys)
         if !isnothing(output)
             output["U0e"] = U0e
             output["T0e"] = TTM.get_Ts(U0e)
@@ -262,7 +262,7 @@ function propagate_trajectories(sys::SpinLSCSys, dt::Real, ntimes::Integer;
     end
 
     if !isnothing(ρ)
-        ρ /= length(sys)
+        ρ ./= length(sys)
         if !isnothing(outputρ)
             outputρ["rho"] = ρ
             flush(outputρ)

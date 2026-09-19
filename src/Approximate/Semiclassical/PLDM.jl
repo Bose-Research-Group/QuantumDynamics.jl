@@ -130,7 +130,7 @@ function propagate_trajectories(sys::PLDMSys, dt::Real, ntimes::Integer;
         ρᵢ = propagate_trajectory(sys, sps0, bps0, dt, ntimes)
         lock(mutlock) do
             ndone += 1
-            ρ += ρᵢ
+            ρ .+= ρᵢ
             verbose && ndone % nthreads == 0 &&
                 @info "Trajectories complete: $(100ndone / length(sys))%"
         end

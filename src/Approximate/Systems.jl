@@ -202,17 +202,17 @@ end
 
 function apply_propagator!(sys::MappedSystem, sps::LinearisedSysPhaseSpace, sinA::AbstractMatrix, cosA::AbstractMatrix, buf::AbstractVector{<:Real})
     buf .= sps.X
-    sps.X .= cosA * sps.X - sinA * sps.P
-    sps.P .= sinA * buf + cosA * sps.P
+    sps.X .= cosA * sps.X + sinA * sps.P
+    sps.P .= -sinA * buf + cosA * sps.P
 end
 
 function apply_propagator!(sys::MappedSystem, sps::PartialLinearisedSysPhaseSpace, sinA::AbstractMatrix, cosA::AbstractMatrix, buf::AbstractVector{<:Real})
     buf .= sps.Xf
-    sps.Xf .= cosA * sps.Xf - sinA * sps.Pf
-    sps.Pf .= sinA * buf + cosA * sps.Pf
+    sps.Xf .= cosA * sps.Xf + sinA * sps.Pf
+    sps.Pf .= -sinA * buf + cosA * sps.Pf
     buf .= sps.Xb
-    sps.Xb .= cosA * sps.Xb - sinA * sps.Pb
-    sps.Pb .= sinA * buf + cosA * sps.Pb
+    sps.Xb .= cosA * sps.Xb + sinA * sps.Pb
+    sps.Pb .= -sinA * buf + cosA * sps.Pb
 end
 
 end

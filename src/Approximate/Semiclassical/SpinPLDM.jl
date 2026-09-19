@@ -102,7 +102,7 @@ function propagate_trajectory(sys::SpinPLDMSys,
     Pb .= sps0.Pb
     buf = similar(Pb)
     bps₀ = bps0
-    bpsₙ = typeof(bps0)(similar.(bps0.q), similar(bps0.p))
+    bpsₙ = typeof(bps0)(similar.(bps0.q), similar.(bps0.p))
     d = sys.d
 
     ρ = zeros(ComplexF64, ntimes+1,d,d)
@@ -122,19 +122,11 @@ function propagate_trajectory(sys::SpinPLDMSys,
 
         sinA, cosA = Systems.get_propagator(sys, bpsₙ, A, dt)
         Systems.apply_propagator!(sys, sps, sinA, cosA, buf)
-        # A now has H(q, p) * dt.
-        # U requires exp(-im * [ 0 A; -A 0 ] * dt).
-        # LU is [ coshA -im * sinhA; im * sinhA coshA ]
-        sinhA = sinh(A)
-        coshA = cosh(A)
-        LU[1:d,1:d] .= coshA
-        LU[1:d,d+1:2d] .= -im .* sinhA
-        LU[d+1:2d,1:d] .= im .* sinhA
-        LU[d+1:2d,d+1:2d] .= im .* coshA
-        U = LU * U
+        # A now has H(q, p) * dt.  U requires exp(-im * A).
+        U = (cosA - im .* sinA) * U
 
         Systems.Fbath!(sys, sps, s̄ₛc)
-        Solvents.propagate_forced_bath(bs, bpsₙ, bps₀, s̄ₛc, dt2, 1)
+        Solvents.propagate_forced_bath!(bs, bpsₙ, bps₀, s̄ₛc, dt2, 1)
 
         @views build_ρ!(sys, sps0, Xf, Pf, Xb, Pb, ρ[t,:,:], U)
     end
@@ -159,7 +151,7 @@ function propagate_trajectories(sys::SpinPLDMSys, dt::Real, ntimes::Integer;
         ρᵢ = propagate_trajectory(sys, sps0, bps0, dt, ntimes)
         lock(mutlock) do
             ndone += 1
-            isnothing(ρ) || (ρ += ρᵢ)
+            isnothing(ρ) || (ρ .+= ρᵢ)
             verbose && ndone % nthreads == 0 &&
                 @info "Trajectories complete: $(100ndone / length(sys))%"
         end
@@ -168,7 +160,7 @@ function propagate_trajectories(sys::SpinPLDMSys, dt::Real, ntimes::Integer;
     @info "Time taken = $(round(stats.time; digits=3)) sec; memory allocated = $(round(stats.bytes / 1e9; digits=3)) GB; gc time = $(round(stats.gctime; digits=3)) sec"
 
     if !isnothing(ρ)
-        ρ /= length(sys)
+        ρ ./= length(sys)
         if !isnothing(outputρ)
             outputρ["rho"] = ρ
             flush(outputρ)
