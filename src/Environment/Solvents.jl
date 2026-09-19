@@ -101,6 +101,19 @@ function propagate_forced_bath(bath::HarmonicBath, bps::HarmonicPhaseSpace,
     energies, HarmonicPhaseSpace(q, p)
 end
 
+function propagate_forced_bath!(bath::HarmonicBath, bps₀::HarmonicPhaseSpace, bpsₙ::HarmonicPhaseSpace, f::Vector{Vector{Float64}}, dt::Real, ntimes::Integer)
+    dt *= ntimes
+
+    for b in eachindex(bps₀.q)
+        for i in eachindex(bps₀.q[b])
+            sinωt, cosωt = sincos(bath.ω[b][i] * dt)
+            disp = f[b][i] / bath.ω[b][i]^2
+            bpsₙ.q[b][i] =  (bps₀.q[b][i] - disp) * cosωt + bps₀.p[b][i] * sinωt / bath.ω[b][i] + disp
+            bpsₙ.p[b][i] = -(bps₀.q[b][i] - disp) * bath.ω[b][i] * sinωt + bps₀.p[b][i] * cosωt
+        end
+    end
+end
+
 """
     bath_force(bath::Solvent, state::PhaseSpace, n::Integer)
 
