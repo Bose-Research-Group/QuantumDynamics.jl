@@ -170,7 +170,7 @@ end
 
 ### Common system dof propagation routines.
 
-"""
+@doc raw"""
     get_propagator(sys::MappedSystem, bps::Solvents.PhaseSpace,
                    A::AbstractMatrix, dt::Real)
 
