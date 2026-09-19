@@ -4,7 +4,7 @@ using HDF5
 using ..Utilities
 using ..TTM
 using ..Solvents, ..Systems, ..SpectralDensities
-using LinearAlgebra: Diagonal, isdiag, diag, ⋅
+using LinearAlgebra: isdiag, diag
 using LinearAlgebra: I as Id
 
 const references = """
@@ -193,27 +193,19 @@ function propagate_trajectory(sys::SpinLSCSys, sps0::SpinLSCSysPhaseSpace,
 
     dt2 = dt / 2
     bs = sys.bath
-    svecs = map(Diagonal, bs.s)
     A = zeros(d,d)
     sₛc = similar.(bs.c)
     Systems.Fbath!(sys, sps0, sₛc)
 
     # NOTE: We do NOT recreate the struct everytime since mutating X
-    # and P in the loop below also updates the value of X and P in the
-    # struct.
+    # and P in Systems.apply_propagator! call below also updates the
+    # value of X and P in the struct.
     sps = SpinLSCSysPhaseSpace(X, P)
     @inbounds for t in 2:ntimes+1
         Solvents.propagate_forced_bath!(bs, bps₀, bpsₙ, sₛc, dt2, 1)
 
-        A .= sys.h
-        for b in eachindex(bs.c)
-            A .-= @views (bs.c[b] ⋅ bpsₙ.q[b]) * svecs[b]
-        end
-        A .*= dt
-        sinA, cosA = sincos(A)
-        buf .= X
-        X .= cosA * X - sinA * P
-        P .= sinA * buf + cosA * P
+        sinA, cosA = Systems.get_propagator(sys, bpsₙ, A, dt)
+        Systems.apply_propagator!(sys, sps, sinA, cosA, buf)
 
         Systems.Fbath!(sys, sps, sₛc)
         Solvents.propagate_forced_bath!(bs, bpsₙ, bps₀, sₛc, dt2, 1)

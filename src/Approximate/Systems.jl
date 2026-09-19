@@ -2,7 +2,7 @@
 module Systems
 
 using ..Solvents: PhaseSpace
-using LinearAlgebra: diag
+using LinearAlgebra: diag, ⋅, Diagonal
 
 """Abstract phase space for methods that use a linearised semiclassical approximation."""
 abstract type LinearisedSysPhaseSpace <: PhaseSpace end
@@ -166,6 +166,53 @@ function sample_XP(sys::SpinMappedSystem)
     sqΣ = sqrt(sum(X.^2 .+ P.^2))
 
     X * R / sqΣ, P * R / sqΣ
+end
+
+### Common system dof propagation routines.
+
+"""
+    get_propagator(sys::MappedSystem, bps::Solvents.PhaseSpace,
+                   A::AbstractMatrix, dt::Real)
+
+Get the "propagator" for the system with bath coordinates given by `bps`.
+
+This routine does not actually return the full propagator but returns
+two matrices which can be put together to get the full Liouvillian.
+Suppose `D` and `E` are the two matrices that are returned in order,
+then
+```math
+\mathcal{L} = \begin{pmatrix}
+D & -E
+E & D
+\end{pmatrix}
+```
+
+`A` is the work matrix whose data will be overwritten, `dt` is the
+time step.
+"""
+function get_propagator(sys::MappedSystem, bps::PhaseSpace,
+                        A::AbstractMatrix, dt::Real)
+    A .= sys.h
+    for b in eachindex(sys.bath.c)
+        A .-= @views (sys.bath.c[b] ⋅ bps.q[b]) * Diagonal(sys.bath.s[b])
+    end
+    A .*= dt
+    sincos(A)
+end
+
+function apply_propagator!(sys::MappedSystem, sps::LinearisedSysPhaseSpace, sinA::AbstractMatrix, cosA::AbstractMatrix, buf::AbstractVector{<:Real})
+    buf .= sps.X
+    sps.X .= cosA * sps.X - sinA * sps.P
+    sps.P .= sinA * buf + cosA * sps.P
+end
+
+function apply_propagator!(sys::MappedSystem, sps::PartialLinearisedSysPhaseSpace, sinA::AbstractMatrix, cosA::AbstractMatrix, buf::AbstractVector{<:Real})
+    buf .= sps.Xf
+    sps.Xf .= cosA * sps.Xf - sinA * sps.Pf
+    sps.Pf .= sinA * buf + cosA * sps.Pf
+    buf .= sps.Xb
+    sps.Xb .= cosA * sps.Xb - sinA * sps.Pb
+    sps.Pb .= sinA * buf + cosA * sps.Pb
 end
 
 end

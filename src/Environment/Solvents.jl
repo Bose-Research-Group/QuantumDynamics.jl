@@ -104,7 +104,7 @@ end
 function propagate_forced_bath!(bath::HarmonicBath, bps₀::HarmonicPhaseSpace, bpsₙ::HarmonicPhaseSpace, f::Vector{Vector{Float64}}, dt::Real, ntimes::Integer)
     dt *= ntimes
 
-    for b in eachindex(bps₀.q)
+    @inbounds for b in eachindex(bps₀.q)
         for i in eachindex(bps₀.q[b])
             sinωt, cosωt = sincos(bath.ω[b][i] * dt)
             disp = f[b][i] / bath.ω[b][i]^2
