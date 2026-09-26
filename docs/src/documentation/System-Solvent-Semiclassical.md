@@ -77,3 +77,12 @@ Systems.transform_op
 ```@docs
 Systems.SWTransform
 ```
+
+# Helpers
+
+For efficient simulations, some in-place helper functions are defined to generate the Liouvillian
+
+```@docs
+Systems.get_propagator
+```
+
