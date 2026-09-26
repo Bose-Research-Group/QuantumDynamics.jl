@@ -3,7 +3,7 @@ module SpinPLDM
 using HDF5
 using ..Utilities
 using ..Solvents, ..Systems, ..SpectralDensities
-using LinearAlgebra: diagm, Diagonal
+using LinearAlgebra: diagm
 
 const references = """
 - Mannouch, J. R.; Richardson, J. O. A partially linearised spin-mapping approach for non-adiabatic dynamics. I. Derivation of the theory. J. Chem. Phys. 2020 153, 194109."""
@@ -80,10 +80,11 @@ function transform_kernel(sys::SpinPLDMSys,
 end
 
 function build_ρ!(sys::SpinPLDMSys, sps0::SpinPLDMSysPhaseSpace,
-                  XPf::Vector{Float64}, XPb::Vector{Float64},
+                  Xf::Vector{Float64}, Pf::Vector{Float64},
+                  Xb::Vector{Float64}, Pb::Vector{Float64},
                   ρ::AbstractMatrix{<:Complex}, U::AbstractMatrix{<:Complex})
-    wf = transform_kernel(sys, sps0.Xf, sps0.Pf, XPf[1:sys.d], XPf[sys.d+1:2sys.d], U)
-    wb = transform_kernel(sys, sps0.Xb, sps0.Pb, XPb[1:sys.d], XPb[sys.d+1:2sys.d], U)
+    wf = transform_kernel(sys, sps0.Xf, sps0.Pf, Xf, Pf, U)
+    wb = transform_kernel(sys, sps0.Xb, sps0.Pb, Xb, Pb, U)
     ρ[:,:] = sys.d^2 * (wf * sys.ρ₀ * wb' + wb * sys.ρ₀ * wf') / 2
 end
 
@@ -91,38 +92,43 @@ function propagate_trajectory(sys::SpinPLDMSys,
                               sps0::SpinPLDMSysPhaseSpace,
                               bps0::Solvents.PhaseSpace,
                               dt::Real, ntimes::Integer)
-    XPf = [ sps0.Xf; sps0.Pf ]
-    XPb = [ sps0.Xb; sps0.Pb ]
-    bps = bps0
+    Xf = similar(sps0.Xf)
+    Xf .= sps0.Xf
+    Pf = similar(sps0.Pf)
+    Pf .= sps0.Pf
+    Xb = similar(sps0.Xb)
+    Xb .= sps0.Xb
+    Pb = similar(sps0.Pb)
+    Pb .= sps0.Pb
+    buf = similar(Pb)
+    bps₀ = bps0
+    bpsₙ = typeof(bps0)(similar.(bps0.q), similar.(bps0.p))
     d = sys.d
 
     ρ = zeros(ComplexF64, ntimes+1,d,d)
     U = diagm(ones(ComplexF64, d))
 
-    @views build_ρ!(sys, sps0, XPf, XPb, ρ[1,:,:], U)
+    @views build_ρ!(sys, sps0, Xf, Pf, Xb, Pb, ρ[1,:,:], U)
 
     dt2 = dt / 2
     bs = sys.bath
-    svecs = map(Diagonal, bs.s)
-    LXP = zeros(2d,2d)
+    A = zeros(d,d)
+    LU = zeros(ComplexF64, 2d,2d)
     s̄ₛc = similar.(bs.c)
+    Systems.Fbath!(sys, sps0, s̄ₛc)
+    sps = SpinPLDMSysPhaseSpace(Xf, Pf, Xb, Pb)
     @inbounds for t in 2:ntimes+1
-        sps = SpinPLDMSysPhaseSpace(XPf[1:d], XPf[d+1:2d], XPb[1:d], XPb[d+1:2d])
+        Solvents.propagate_forced_bath!(bs, bps₀, bpsₙ, s̄ₛc, dt2, 1)
+
+        sinA, cosA = Systems.get_propagator(sys, bpsₙ, A, dt)
+        Systems.apply_propagator!(sys, sps, sinA, cosA, buf)
+        # A now has H(q, p) * dt.  U requires exp(-im * A).
+        U = (cosA - im .* sinA) * U
+
         Systems.Fbath!(sys, sps, s̄ₛc)
-        _, bps = Solvents.propagate_forced_bath(bs, bps, s̄ₛc, dt2, 1)
+        Solvents.propagate_forced_bath!(bs, bpsₙ, bps₀, s̄ₛc, dt2, 1)
 
-        LXP[1:d,d+1:2d] = @views sys.h - mapreduce((b, x) -> sum(bs.c[b] .* x) * svecs[b], +, 1:length(bs), bps.q)
-        LXP[d+1:2d,1:d] = -LXP[1:d,d+1:2d]
-        eLXP = exp(LXP * dt)
-        XPf = eLXP * XPf
-        XPb = eLXP * XPb
-        U = exp(-im * LXP[1:d,d+1:2d] * dt) * U
-
-        sps = SpinPLDMSysPhaseSpace(XPf[1:d], XPf[d+1:2d], XPb[1:d], XPb[d+1:2d])
-        Systems.Fbath!(sys, sps, s̄ₛc)
-        _, bps = Solvents.propagate_forced_bath(bs, bps, s̄ₛc, dt2, 1)
-
-        @views build_ρ!(sys, sps0, XPf, XPb, ρ[t,:,:], U)
+        @views build_ρ!(sys, sps0, Xf, Pf, Xb, Pb, ρ[t,:,:], U)
     end
 
     ρ
@@ -145,7 +151,7 @@ function propagate_trajectories(sys::SpinPLDMSys, dt::Real, ntimes::Integer;
         ρᵢ = propagate_trajectory(sys, sps0, bps0, dt, ntimes)
         lock(mutlock) do
             ndone += 1
-            isnothing(ρ) || (ρ += ρᵢ)
+            isnothing(ρ) || (ρ .+= ρᵢ)
             verbose && ndone % nthreads == 0 &&
                 @info "Trajectories complete: $(100ndone / length(sys))%"
         end
@@ -154,7 +160,7 @@ function propagate_trajectories(sys::SpinPLDMSys, dt::Real, ntimes::Integer;
     @info "Time taken = $(round(stats.time; digits=3)) sec; memory allocated = $(round(stats.bytes / 1e9; digits=3)) GB; gc time = $(round(stats.gctime; digits=3)) sec"
 
     if !isnothing(ρ)
-        ρ /= length(sys)
+        ρ ./= length(sys)
         if !isnothing(outputρ)
             outputρ["rho"] = ρ
             flush(outputρ)

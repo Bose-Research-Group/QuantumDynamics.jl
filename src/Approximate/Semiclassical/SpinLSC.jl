@@ -4,7 +4,7 @@ using HDF5
 using ..Utilities
 using ..TTM
 using ..Solvents, ..Systems, ..SpectralDensities
-using LinearAlgebra: Diagonal, isdiag, diag
+using LinearAlgebra: isdiag, diag
 using LinearAlgebra: I as Id
 
 const references = """
@@ -172,8 +172,13 @@ end
 function propagate_trajectory(sys::SpinLSCSys, sps0::SpinLSCSysPhaseSpace,
                               bps0::Solvents.PhaseSpace, dt::Real, ntimes::Integer,
                               build_dynamical_map::Bool=false)
-    XP = [ sps0.X; sps0.P ]
-    bps = bps0
+    X = similar(sps0.X)
+    P = similar(sps0.P)
+    X .= sps0.X
+    P .= sps0.P
+    buf = similar(sps0.X)
+    bps₀ = bps0
+    bpsₙ = typeof(bps0)(similar.(bps0.q), similar.(bps0.p))
     d = sys.d
 
     U0e = build_dynamical_map && sys.focused_n < 0 ? zeros(ComplexF64, ntimes,sys.d^2,sys.d^2) : nothing
@@ -188,21 +193,22 @@ function propagate_trajectory(sys::SpinLSCSys, sps0::SpinLSCSysPhaseSpace,
 
     dt2 = dt / 2
     bs = sys.bath
-    svecs = map(Diagonal, bs.s)
-    LXP = zeros(2d,2d)
+    A = zeros(d,d)
     sₛc = similar.(bs.c)
+    Systems.Fbath!(sys, sps0, sₛc)
+
+    # NOTE: We do NOT recreate the struct everytime since mutating X
+    # and P in Systems.apply_propagator! call below also updates the
+    # value of X and P in the struct.
+    sps = SpinLSCSysPhaseSpace(X, P)
     @inbounds for t in 2:ntimes+1
-        sps = SpinLSCSysPhaseSpace(XP[1:d], XP[d+1:2d])
-        Systems.Fbath!(sys, sps, sₛc)
-        _, bps = Solvents.propagate_forced_bath(bs, bps, sₛc, dt2, 1)
+        Solvents.propagate_forced_bath!(bs, bps₀, bpsₙ, sₛc, dt2, 1)
 
-        LXP[1:d,d+1:2d] = @views sys.h - mapreduce((b, x) -> sum(bs.c[b] .* x) .* svecs[b], +, 1:length(bs), bps.q)
-        LXP[d+1:2d,1:d] = -LXP[1:d,d+1:2d]
-        XP = exp(LXP * dt) * XP
+        sinA, cosA = Systems.get_propagator(sys, bpsₙ, A, dt)
+        Systems.apply_propagator!(sys, sps, sinA, cosA, buf)
 
-        sps = SpinLSCSysPhaseSpace(XP[1:d], XP[d+1:2d])
         Systems.Fbath!(sys, sps, sₛc)
-        _, bps = Solvents.propagate_forced_bath(bs, bps, sₛc, dt2, 1)
+        Solvents.propagate_forced_bath!(bs, bpsₙ, bps₀, sₛc, dt2, 1)
 
         bareρ = reconstruct_bare_ρ(sys, sps)
         if !isnothing(U0e)
@@ -236,8 +242,8 @@ function propagate_trajectories(sys::SpinLSCSys, dt::Real, ntimes::Integer;
     stats = @timed Threads.@threads for (sps0, bps0) in sys
         U0eᵢ, ρᵢ = propagate_trajectory(sys, sps0, bps0, dt, ntimes, build_dynamical_map)
         lock(mutlock) do
-            isnothing(U0e) || (U0e += U0eᵢ)
-            isnothing(ρ)   || (ρ += ρᵢ)
+            isnothing(U0e) || (U0e .+= U0eᵢ)
+            isnothing(ρ)   || (ρ .+= ρᵢ)
             ndone += 1
             verbose && ndone % nthreads == 0 &&
                 @info "Trajectories complete: $(100ndone / length(sys))%"
@@ -247,7 +253,7 @@ function propagate_trajectories(sys::SpinLSCSys, dt::Real, ntimes::Integer;
         "Time taken = $(round(stats.time; digits=3)) sec; memory allocated = $(round(stats.bytes / 1e9; digits=3)) GB; gc time = $(round(stats.gctime; digits=3)) sec"
 
     if !isnothing(U0e)
-        U0e /= length(sys)
+        U0e ./= length(sys)
         if !isnothing(output)
             output["U0e"] = U0e
             output["T0e"] = TTM.get_Ts(U0e)
@@ -256,7 +262,7 @@ function propagate_trajectories(sys::SpinLSCSys, dt::Real, ntimes::Integer;
     end
 
     if !isnothing(ρ)
-        ρ /= length(sys)
+        ρ ./= length(sys)
         if !isnothing(outputρ)
             outputρ["rho"] = ρ
             flush(outputρ)

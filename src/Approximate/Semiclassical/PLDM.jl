@@ -3,7 +3,6 @@ module PLDM
 using HDF5
 using ..Utilities
 using ..Solvents, ..Systems, ..SpectralDensities
-using LinearAlgebra: Diagonal
 
 const references = """
 - Huo, P.; Coker, D. F. Communication: Partial linearized density matrix dynamics for dissipative, non-adiabatic quantum evolution. J. Chem. Phys. 2011, 135, 201101.
@@ -58,8 +57,10 @@ function Systems.transform_op(sys::PLDMSys, op::Union{AbstractMatrix,AbstractVec
 end
 
 function build_ρ!(sys::PLDMSys, sps0::PLDMSysPhaseSpace,
-                  XPf::AbstractVector{<:Real},
-                  XPb::AbstractVector{<:Real},
+                  Xf::AbstractVector{<:Real},
+                  Pf::AbstractVector{<:Real},
+                  Xb::AbstractVector{<:Real},
+                  Pb::AbstractVector{<:Real},
                   ρ::AbstractMatrix{<:Complex})
     d = sys.d
     zf0 = sps0.Xf + im * sps0.Pf
@@ -67,43 +68,46 @@ function build_ρ!(sys::PLDMSys, sps0::PLDMSysPhaseSpace,
     w = zf0' * sys.ρ₀ * zb0 / 2
     w′ = zb0' * sys.ρ₀ * zf0 / 2
 
-    ρ .= ((w  * (XPf[1:d] + im * XPf[d+1:end]) * (XPb[1:d] + im * XPb[d+1:end])') / 2 +
-          (w′ * (XPb[1:d] + im * XPb[d+1:end]) * (XPf[1:d] + im * XPf[d+1:end])') / 2) / 2
+    ρ .= ((w  * (Xf + im * Pf) * (Xb + im * Pb)') / 2 +
+          (w′ * (Xb + im * Pb) * (Xf + im * Pf)') / 2) / 2
 end
 
 function propagate_trajectory(sys::PLDMSys, sps0::PLDMSysPhaseSpace,
                               bps0::Solvents.PhaseSpace,
                               dt::Real, ntimes::Integer)
-    XPf = [ sps0.Xf; sps0.Pf ]
-    XPb = [ sps0.Xb; sps0.Pb ]
-    bps = bps0
+    Xf = similar(sps0.Xf)
+    Xf .= sps0.Xf
+    Pf = similar(sps0.Pf)
+    Pf .= sps0.Pf
+    Xb = similar(sps0.Xb)
+    Xb .= sps0.Xb
+    Pb = similar(sps0.Pb)
+    Pb .= sps0.Pb
+    buf = similar(Pb)
+    bps₀ = bps0
+    bpsₙ = typeof(bps0)(similar.(bps0.q), similar.(bps0.p))
     d = sys.d
 
     ρ = zeros(ComplexF64, ntimes+1,d,d)
 
-    @views build_ρ!(sys, sps0, XPf, XPb, ρ[1,:,:])
+    @views build_ρ!(sys, sps0, Xf, Pf, Xb, Pb, ρ[1,:,:])
 
     dt2 = dt / 2
     bs = sys.bath
-    svecs = map(Diagonal, bs.s)
-    LXP = zeros(2d,2d)
+    A = zeros(d,d)
     s̄c = similar.(bs.c)
+    Systems.Fbath!(sys, sps0, s̄c)
+    sps = PLDMSysPhaseSpace(Xf, Pf, Xb, Pb)
     @inbounds for t in 2:ntimes+1
-        sps = PLDMSysPhaseSpace(XPf[1:d], XPf[d+1:2d], XPb[1:d], XPb[d+1:2d])
+        Solvents.propagate_forced_bath!(bs, bps₀, bpsₙ, s̄c, dt2, 1)
+
+        sinA, cosA = Systems.get_propagator(sys, bpsₙ, A, dt)
+        Systems.apply_propagator!(sys, sps, sinA, cosA, buf)
+
         Systems.Fbath!(sys, sps, s̄c)
-        _, bps = Solvents.propagate_forced_bath(bs, bps, s̄c, dt2, 1)
+        Solvents.propagate_forced_bath!(bs, bpsₙ, bps₀, s̄c, dt2, 1)
 
-        LXP[1:d,d+1:2d] = @views sys.h - mapreduce((b, q) -> sum(bs.c[b] .* q) * svecs[b], +, 1:length(bs), bps.q)
-        LXP[d+1:2d,1:d] = -LXP[1:d,d+1:2d]
-        eLXP = exp(LXP * dt)
-        XPf = eLXP * XPf
-        XPb = eLXP * XPb
-
-        sps = PLDMSysPhaseSpace(XPf[1:d], XPf[d+1:2d], XPb[1:d], XPb[d+1:2d])
-        Systems.Fbath!(sys, sps, s̄c)
-        _, bps = Solvents.propagate_forced_bath(bs, bps, s̄c, dt2, 1)
-
-        @views build_ρ!(sys, sps0, XPf, XPb, ρ[t,:,:])
+        @views build_ρ!(sys, sps0, Xf, Pf, Xb, Pb, ρ[t,:,:])
     end
 
     ρ
@@ -126,7 +130,7 @@ function propagate_trajectories(sys::PLDMSys, dt::Real, ntimes::Integer;
         ρᵢ = propagate_trajectory(sys, sps0, bps0, dt, ntimes)
         lock(mutlock) do
             ndone += 1
-            ρ += ρᵢ
+            ρ .+= ρᵢ
             verbose && ndone % nthreads == 0 &&
                 @info "Trajectories complete: $(100ndone / length(sys))%"
         end
