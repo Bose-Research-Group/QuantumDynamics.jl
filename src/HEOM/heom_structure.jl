@@ -195,9 +195,16 @@ function uncoupled_eom!(dρ, ρ, params::HEOMParams{Nothing, T}, t) where T
 end
 function uncoupled_eom!(dρ, ρ, params::HEOMParams{Vector{Matrix{ComplexF64}}, T}, t) where T
     get_base_eom!(dρ, ρ, params.H, params.tmp1, params.external_fields, t)
-    for n in axes(ρ, 3)
-        for (L, LdagL) in zip(params.L, params.LdagL)
-            dρ[:, :, n] .+= L * ρ[:, :, n] * L' .- 0.5 .* LdagL * ρ[:, :, n] .- 0.5 .* ρ[:, :, n] * LdagL
+    for (L, LdagL) in zip(params.L, params.LdagL)
+        Ldag = L'
+        for n in axes(ρ, 3)
+            ρn = @view ρ[:, :, n]
+            dρn = @view dρ[:, :, n]
+            mul!(params.tmp1, ρn, Ldag)
+            mul!(dρn, L, params.tmp1, 1.0, 1.0)
+            mul!(dρn, LdagL, ρn, -0.5, 1.0)
+            mul!(dρn, ρn, LdagL, -0.5, 1.0)
+            # dρn .+= L * ρn * Ldag .- 0.5 .* LdagL * ρn .- 0.5 .* ρn * LdagL
         end
     end
     nothing
