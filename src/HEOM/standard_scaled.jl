@@ -3,7 +3,7 @@ module HEOM
 using HDF5
 using OrdinaryDiffEq
 using ..HEOMStructure
-using ..SpectralDensities, ..Solvents, ..Utilities
+using ..SpectralDensities, ..SpectralDensityDecompositions, ..Solvents, ..Utilities
 
 const references = """
 - Y. Tanimura and R. Kubo, Time Evolution of a Quantum System in Contact with a Nearly Gaussian-Markoffian Noise Bath, Journal of the Physical Society of Japan 58, 101 (1989).
@@ -28,14 +28,15 @@ Uses HEOM to propagate the initial reduced density matrix, `ρ0`, under the give
 - `threshold`: filtration threshold
 - `extraargs`: extra arguments for the differential equation solver
 """
-function propagate(; Hamiltonian::AbstractMatrix{ComplexF64}, ρ0::AbstractMatrix{ComplexF64}, β::Real, Jw::AbstractVector{SpectralDensities.SpectralDensity}, sys_ops::Vector{Matrix{ComplexF64}}, num_modes::Int, Lmax::Int, dt::Real, ntimes::Int, threshold::Float64=0.0, L::Union{Nothing,Vector{Matrix{ComplexF64}}}=nothing, external_fields::Union{Nothing,Vector{Utilities.ExternalField}}=nothing, extraargs::Utilities.DiffEqArgs=Utilities.DiffEqArgs(), decomposition::String, verbose=false, separable=true, output::Union{Nothing,HDF5.Group}=nothing)
-    decomps = Vector{SpectralDensities.ExponentialDecomposition}(undef, length(Jw))
+function propagate(; Hamiltonian::AbstractMatrix{ComplexF64}, ρ0::AbstractMatrix{ComplexF64}, β::Real, Jw::AbstractVector{SpectralDensities.SpectralDensity}, sys_ops::Vector{Matrix{ComplexF64}}, tol::Float64, num_modes::Int, Lmax::Int, dt::Real, ntimes::Int, threshold::Float64=0.0, L::Union{Nothing,Vector{Matrix{ComplexF64}}}=nothing, external_fields::Union{Nothing,Vector{Utilities.ExternalField}}=nothing, extraargs::Utilities.DiffEqArgs=Utilities.DiffEqArgs(), decomposition::String, verbose=false, separable=true, output::Union{Nothing,HDF5.Group}=nothing)
+    decomps = Vector{SpectralDensityDecompositions.ExponentialDecomposition}(undef, length(Jw))
     Δk = zeros(length(Jw))
     Δk_imag = zeros(length(Jw))
     for (i, jw) in enumerate(Jw)
-        decomps[i] = decomposition == "matsubara" ? SpectralDensities.matsubara_decomposition(jw, num_modes, β) : SpectralDensities.pade_decomposition(jw, num_modes, β)
+        # decomps[i] = decomposition == "matsubara" ? SpectralDensityDecompositions.matsubara_decomposition(jw, num_modes, β) : SpectralDensityDecompositions.pade_decomposition(jw, num_modes, β)
+        decomps[i], Δk_target = SpectralDensityDecompositions.thermal_decomposition(jw, tol, num_modes, decomposition, β)
         tmp = sum(decomps[i].c ./ decomps[i].ν)
-        Δk[i] = (SpectralDensities.Δk_target(jw, β) - real(tmp)) # residual sum used to truncate the hierarchy
+        Δk[i] = (Δk_target - real(tmp)) # residual sum used to truncate the hierarchy
         Δk_imag[i] = (-SpectralDensities.reorganization_energy(jw)/jw.Δs^2 - imag(tmp))
         verbose && @info "Decomposed bath number $i."
     end

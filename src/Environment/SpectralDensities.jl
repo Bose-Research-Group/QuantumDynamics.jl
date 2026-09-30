@@ -14,6 +14,7 @@ const references = """
 Abstract base type for all spectral densities.
 """
 abstract type SpectralDensity end
+
 """
     ContinuousSpectralDensity <: SpectralDensity
 Abstract base type for all continuous spectral densities.
@@ -61,7 +62,7 @@ end
 Abstract base type for all model analytical spectral densities. An analytical spectral density, `J`, can be evaluated at a frequency, `ω`, as `J(ω)`.
 """
 abstract type AnalyticalSpectralDensity <: ContinuousSpectralDensity end
-(sd::AnalyticalSpectralDensity)(ω::Real) = evaluate(sd, ω)
+(sd::AnalyticalSpectralDensity)(ω::Number) = evaluate(sd, ω)
 eval_spectrum(sd::AnalyticalSpectralDensity, ω::Real, β::Real) = ω == 0.0 ? eval_spectrum_at_zero(sd) : 2.0 * sd(ω) / (1 - exp(-β * ω))
 
 """
@@ -91,7 +92,7 @@ struct ExponentialCutoff <: AnalyticalSpectralDensity
     classical::Bool
 end
 ExponentialCutoff(; ξ::Float64, ωc::Float64, n=1.0, Δs=2.0, ωmax=30 * ωc, classical=false, npoints=10000) = ExponentialCutoff(ξ, ωc, Δs, n, ωmax, npoints, classical)
-evaluate(sd::ExponentialCutoff, ω::T) where {T<:AbstractFloat} = T(2π) / sd.Δs^2 * sd.ξ * sign(ω) * abs(ω)^sd.n * sd.ωc^(1 - sd.n) * exp(-abs(ω) / sd.ωc)
+evaluate(sd::ExponentialCutoff, ω::Number) = 2π / sd.Δs^2 * sd.ξ * ω^sd.n * sd.ωc^(1 - sd.n) * exp(-ω / sd.ωc)
 eval_spectrum_at_zero(sd::ExponentialCutoff) = sd.n == 1 ? 2.0 * 2π / sd.Δs^2 * sd.ξ : 0
 
 """
@@ -119,7 +120,7 @@ struct DrudeLorentz <: AnalyticalSpectralDensity
     classical::Bool
 end
 DrudeLorentz(; λ::T, γ::T, Δs=2.0, ωmax=1000 * γ, classical=false, npoints=10000) where {T<:AbstractFloat} = DrudeLorentz(λ, γ, Δs, ωmax, npoints, classical)
-evaluate(sd::DrudeLorentz, ω::Real) = 2 * sd.λ / sd.Δs^2 * sign(ω) * abs(ω) * sd.γ / (abs(ω)^2 + sd.γ^2)
+evaluate(sd::DrudeLorentz, ω::Number) = 2 * sd.λ / sd.Δs^2 * ω * sd.γ / (ω^2 + sd.γ^2)
 eval_spectrum_at_zero(sd::DrudeLorentz) = 2 * 2 * sd.λ / sd.Δs^2 * sd.γ
 Δk_target(sd::SpectralDensities.DrudeLorentz, β) = 2 * sd.λ / (sd.Δs^2 * sd.γ * β)
 
@@ -155,196 +156,18 @@ eval_spectrum_at_zero(sd::UnderdampedBrownian) = 4 * sd.λ * sd.γ / (sd.Δs^2 *
 Δk_target(sd::SpectralDensities.UnderdampedBrownian, β) = 2 * sd.λ * sd.γ / (sd.Δs^2 * sd.ω0^2 * β)
 
 """
-    ExponentialDecomposition
-Contains the data for the representation of a bath correlation function as a sum of exponentials with complex rates. Used for HEOM.
-
-The struct contains:
-- `ν`: rates
-- `c`: coefficients
-- `ctilde`: coefficients of the complex conjugate rate mode
-- `scale`: HEOM scaling factor
-"""
-struct ExponentialDecomposition
-    ν::Vector{ComplexF64}
-    c::Vector{ComplexF64}
-    ctilde::Vector{ComplexF64}
-    scale::Vector{Float64}
-
-    function ExponentialDecomposition(ν,c,ctilde)
-        @assert length(ν) == length(c) == length(ctilde)
-        scale = sqrt.(abs.(c .* ctilde))
-        new(ComplexF64.(ν), ComplexF64.(c), ComplexF64.(ctilde), scale)
-    end
-end
-imaginary_response_decomposition(sd::SpectralDensity, num_modes::Int) = error("Imaginary response decomposition not implemented for $(typeof(sd)).")
-matsubara_decomposition(sd::SpectralDensity, num_modes::Int, β::AbstractFloat) = error("Matsubara decomposition not implemented for $(typeof(sd)).")
-pade_decomposition(sd::SpectralDensity, num_modes::Int, β::AbstractFloat) = error("Pade decomposition not implemented for $(typeof(sd)).")
-
-"""
-    matsubara_decomposition(sd::DrudeLorentz, num_modes::Int, β::AbstractFloat)
-
-Implements the Matsubara decomposition for the Drude-Lorentz spectral density.
-Returns the decay rates, `γ`, and the expansion coefficients, `c`.
-"""
-function matsubara_decomposition(sd::DrudeLorentz, num_modes::Int, β::AbstractFloat)
-    elem_type = typeof(sd.λ)
-    γ = zeros(Complex{elem_type}, num_modes + 1)
-    c = zeros(Complex{elem_type}, num_modes + 1)
-    γ[1] = sd.γ
-    c[1] = sd.λ * sd.γ / sd.Δs^2 * (cot(β * sd.γ / (2 * one(elem_type))) - 1im)
-    for k = 2:num_modes+1
-        γ[k] = 2 * (k - 1) * elem_type(π) / β
-        c[k] = 4 * sd.λ / sd.Δs^2 * sd.γ / β * γ[k] / (γ[k]^2 - sd.γ^2)
-    end
-
-    ExponentialDecomposition(γ, c, conj.(c))
-end
-imaginary_response_decomposition(sd::DrudeLorentz, num_modes::Int) = ExponentialDecomposition([sd.γ + 0.0im], [-1im * sd.λ * sd.γ / sd.Δs^2], [1im * sd.λ * sd.γ / sd.Δs^2])
-function matsubara_decomposition(sd::UnderdampedBrownian, num_modes::Int, β::AbstractFloat)
-    elem_type = typeof(sd.λ)
-    Ω = sqrt(complex(sd.ω0^2 - sd.γ^2 / 4))
-    A = sd.λ * sd.ω0^2 / (2 * sd.Δs^2 * Ω)
-
-    ν = zeros(Complex{elem_type}, num_modes + 2)
-    c = zeros(Complex{elem_type}, num_modes + 2)
-
-    ν[1] = sd.γ / 2 - 1im * Ω
-    ν[2] = sd.γ / 2 + 1im * Ω
-    c[1] = -A * (1 + coth(β * (-Ω - 1im * sd.γ / 2) / 2))
-    c[2] =  A * (1 + coth(β * ( Ω - 1im * sd.γ / 2) / 2))
-
-    for k = 1:num_modes
-        νk = 2 * k * elem_type(π) / β
-        ν[k+2] = νk
-        c[k+2] = -4 * sd.λ * sd.γ * sd.ω0^2 * νk / (β * sd.Δs^2 * ((νk^2 + sd.ω0^2)^2 - sd.γ^2 * νk^2))
-    end
-
-    ctilde = similar(c)
-    ctilde[1] = conj(c[2])   # crossed pairing — ν[1],ν[2] are a genuine conjugate
-    ctilde[2] = conj(c[1])   # pair, same convention as imaginary_response_decomposition
-    for k = 1:num_modes
-        ctilde[k+2] = conj(c[k+2])  # real ν here, standard self-pairing
-    end
-
-    ExponentialDecomposition(ν, c, ctilde)
-end
-function imaginary_response_decomposition(sd::UnderdampedBrownian, num_modes::Int)
-    Ω = sqrt(complex(sd.ω0^2 - sd.γ^2/4))
-    ν = ComplexF64[ sd.γ/2 - 1im*Ω, sd.γ/2 + 1im*Ω ]
-    A = sd.λ * sd.ω0^2 / (2 * sd.Δs^2 * Ω)
-    c = ComplexF64[ -A, A ]
-    # crossed conjugate coefficients
-    ctilde = ComplexF64[ conj(c[2]), conj(c[1]) ]
-    ExponentialDecomposition(ν, c, ctilde)
-end
-
-"""
-    pade_decomposition(sd::DrudeLorentz, num_modes::Int, β::AbstractFloat)
-
-Implements the [N-1/N] Padé spectrum decomposition for the Drude-Lorentz spectral density.
-Returns the decay rates, `γ`, and the expansion coefficients, `c`.
-"""
-function pade_decomposition(sd::DrudeLorentz, num_modes::Int, β::AbstractFloat)
-    elem_type = typeof(sd.λ)
-    γ = zeros(Complex{elem_type}, num_modes + 1)
-    c = zeros(Complex{elem_type}, num_modes + 1)
-    
-    # Padé [N-1/N] poles (η) and residues (κ) for the Bose-Einstein distribution
-    η, κ = get_pade_poles_residues(num_modes, elem_type)
-    
-    γ[1] = sd.γ
-    c[1] = sd.λ * sd.γ / sd.Δs^2 * (cot(β * sd.γ / (2 * one(elem_type))) - 1im)
-
-    for k = 1:num_modes
-        γ[k+1] = η[k] / β
-        c[k+1] = (4 * sd.λ * sd.γ) / (β * sd.Δs^2) * (κ[k] * γ[k+1] / (γ[k+1]^2 - sd.γ^2))
-    end
-
-    ExponentialDecomposition(γ, c, conj.(c))
-end
-function pade_decomposition(sd::UnderdampedBrownian, num_modes::Int, β::AbstractFloat)
-    elem_type = typeof(sd.λ)
-    Ω = sqrt(complex(sd.ω0^2 - sd.γ^2 / 4))
-    A = sd.λ * sd.ω0^2 / (2 * sd.Δs^2 * Ω)
-
-    ν = zeros(Complex{elem_type}, num_modes + 2)
-    c = zeros(Complex{elem_type}, num_modes + 2)
-
-    ν[1] = sd.γ / 2 - 1im * Ω
-    ν[2] = sd.γ / 2 + 1im * Ω
-    c[1] = -A * (1 + coth(β * (-Ω - 1im * sd.γ / 2) / 2))
-    c[2] =  A * (1 + coth(β * ( Ω - 1im * sd.γ / 2) / 2))
-
-    η, κ = get_pade_poles_residues(num_modes, elem_type)  # reused as-is — universal to coth(βω/2)
-    for k = 1:num_modes
-        νk = η[k] / β
-        ν[k+2] = νk
-        c[k+2] = κ[k] * (-4 * sd.λ * sd.γ * sd.ω0^2 * νk / (β * sd.Δs^2 * ((νk^2 + sd.ω0^2)^2 - sd.γ^2 * νk^2)))
-    end
-
-    ctilde = similar(c)
-    ctilde[1] = conj(c[2])
-    ctilde[2] = conj(c[1])
-    for k = 1:num_modes
-        ctilde[k+2] = conj(c[k+2])
-    end
-
-    ExponentialDecomposition(ν, c, ctilde)
-end
-
-"""
-    get_pade_poles_residues(N::Int, T::Type)
-
-Constructs the specific tridiagonal matrix whose eigenvalues and 
-eigenvectors define the [N-1/N] Padé poles and residues.
-"""
-function get_pade_poles_residues(N::Int, T::Type)
-    N == 0 && return T[], T[]
-
-    b(m::Int64; symmtype="boson") = (symmtype == "boson") ? (2m+1) : (2m-1)
-
-    d = [1 / sqrt(b(j) * b(j+1)) for j=1:2N-1]
-    C = SymTridiagonal(zeros(2N), d)
-    vals, vecs = eigen(C)
-
-    idx = findall(vals .> 100 * eps(Float64))
-    ξ = 2 ./ vals[idx]
-    sort!(ξ)
-
-    Ctilde = SymTridiagonal(zeros(2N-1), d[2:end])
-    vals, vecs = eigen(Ctilde)
-    idx = findall(vals .> 100 * eps(Float64))
-    ζ = 2 ./ vals[idx]
-
-    η = ones(N) * N * b(N+1) / 2
-    for j = 1:N
-        for k = 1:N-1
-            η[j] *= ζ[k]^2 - ξ[j]^2
-            if k != j
-                η[j] /= ξ[k]^2 - ξ[j]^2
-            end
-        end
-        if j != N
-            η[j] /= ξ[N]^2 - ξ[j]^2
-        end
-    end
-
-    ξ, η
-end
-
-"""
     tabulate(sd::AnalyticalSpectralDensity, full_real::Bool=true)
 Returns a table with `ω` and `J(ω)` for ω between -ωmax to ωmax if `full_real` is true. Otherwise the table ranges for ω between 0 and ωmax with `sd.npoints`.
 """
 function tabulate(sd::AnalyticalSpectralDensity, full_real::Bool=true)
-    ω = Vector{typeof(sd.Δs)}()
+    ωtmp = range(-sd.ωmax, sd.ωmax, length=2 * sd.npoints) |> collect
+    ω = ωtmp[sd.npoints+1:end]
     if full_real
-        ω = range(-sd.ωmax, sd.ωmax, length=sd.npoints) |> collect
+        jw = sd.(ω)
+        vcat(-reverse(ω), ω), vcat(-reverse(jw), jw)
     else
-        ωtmp = range(-sd.ωmax, sd.ωmax, length=2 * sd.npoints) |> collect
-        ω = ωtmp[sd.npoints+1:end]
+        ω, sd.(ω)
     end
-    ω, sd.(ω)
 end
 
 
