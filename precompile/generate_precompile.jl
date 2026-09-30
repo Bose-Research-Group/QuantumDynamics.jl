@@ -37,8 +37,8 @@ using PrecompileTools: @setup_workload, @compile_workload
     sys_ops = [[1.0+0.0im 0.0; 0.0 -1.0]]
     num_modes = 3
     Lmax = 3
-    t, ρs = HEOM.propagate(; Hamiltonian=H, ρ0, β, Jw, sys_ops, num_modes, Lmax, dt, ntimes, decomposition="matsubara")
-    t, ρs = HEOM.propagate(; Hamiltonian=H, ρ0, β, Jw, sys_ops, num_modes, Lmax, dt, ntimes, decomposition="pade")
+    t, ρs = HEOM.propagate(; Hamiltonian=H, ρ0, β, Jw, sys_ops, tol=1e-7, num_modes, Lmax, dt, ntimes, decomposition="matsubara")
+    t, ρs = HEOM.propagate(; Hamiltonian=H, ρ0, β, Jw, sys_ops, tol=1e-7, num_modes, Lmax, dt, ntimes, decomposition="pade")
 
 
     H = Matrix{ComplexF64}([

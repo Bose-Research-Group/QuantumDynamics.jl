@@ -137,3 +137,34 @@ function finite_difference_coeffs(n, order)
 
     M \ v
 end
+
+function aaa(X, Y; tol=1e-10, mmax=60)
+    M = length(X); mask = trues(M); R = fill(sum(Y)/M, M)
+    xj = Float64[]; yj = Float64[]; C = zeros(M, 0); w = Float64[]
+    for m in 1:mmax
+        j = argmax(abs.(Y .- R) .* mask)
+        push!(xj, X[j]); push!(yj, Y[j]); mask[j] = false
+        C = hcat(C, 1 ./ (X .- X[j]))
+        A = Y[mask] .* C[mask, :] .- C[mask, :] .* yj'
+        w = svd(A).V[:, end]
+        N = C * (w .* yj); D = C * w
+        R = copy(Y); R[mask] = N[mask] ./ D[mask]
+        maximum(abs.(Y .- R)) <= tol * maximum(abs.(Y)) && break
+    end
+    m = length(xj)
+    E = [0 w'; ones(m) Diagonal(xj)]
+    B = Diagonal([0; ones(m)])
+    λ = eigvals(E, B)
+    xj, yj, w, filter(isfinite, λ)   # poles x_k
+end
+
+function aaa_poles_pruned(x, y; tol=1e-6, rtol=1e-6, mmax=60)
+    _, _, _, xk = aaa(x, y; tol, mmax)
+    Φ = 1 ./ (x .- transpose(xk))
+    r = Φ \ complex.(y)
+    keep = abs.(r) .> rtol * maximum(abs.(r))
+    xk_clean = xk[keep]
+    Φ2 = 1 ./ (x .- transpose(xk_clean))
+    r2 = Φ2 \ complex.(y)
+    xk_clean, r2
+end
