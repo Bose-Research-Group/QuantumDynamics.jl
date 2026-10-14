@@ -3,7 +3,7 @@ module QuAPI
 using LinearAlgebra
 using HDF5
 using FLoops
-using ..EtaCoefficients, ..Propagators, ..SpectralDensities, ..Utilities, ..TTM
+using ..EtaCoefficients, ..Propagators, ..Solvents, ..SpectralDensities, ..Utilities, ..TTM
 
 const references = """
 - Makri, N.; Makarov, D. E. Tensor Propagator for Iterative Quantum Time Evolution of Reduced Density Matrices. I. Theory. The Journal of Chemical Physics 1995, 102 (11), 4600–4610. https://doi.org/10.1063/1.469509.
@@ -121,101 +121,74 @@ end
     state_values, paths
 end
 
-function get_influence(η::EtaCoefficients.EtaCoeffs, bath_number::Int, state_values::States, path::Vector{UInt64}, terminal::Bool, in_memory::Bool)
+function get_influence(η::EtaCoefficients.EtaCoeffs, bath_number::Int, state_values::States, path::Vector{UInt64}, in_memory::Bool)
     @inbounds begin
         Δsfinal = state_values.Δs[bath_number, path[end]]
         if Δsfinal == 0
-            return 1
+            return one(ComplexF64), one(ComplexF64)
         end
         num_time = length(path)
-        if in_memory
-            if terminal
-                influence_exponent = real(η.η00) * Δsfinal + 2im * imag(η.η00) * state_values.sbar[bath_number, path[end]]
-                for i = 2:num_time-1
-                    influence_exponent += real(η.η0m[num_time-i]) * state_values.Δs[bath_number, path[i]] + 2im * imag(η.η0m[num_time-i]) * state_values.sbar[bath_number, path[i]]
-                end
-                influence_exponent += real(η.η0e[num_time-1]) * state_values.Δs[bath_number, path[1]] + 2im * imag(η.η0e[num_time-1]) * state_values.sbar[bath_number, path[1]]
-                return exp(-Δsfinal * influence_exponent)
-            else
-                influence_exponent = real(η.ηmm) * Δsfinal + 2im * imag(η.ηmm) * state_values.sbar[bath_number, path[end]]
-                for i = 2:num_time-1
-                    influence_exponent += real(η.ηmn[num_time-i]) * state_values.Δs[bath_number, path[i]] + 2im * imag(η.ηmn[num_time-i]) * state_values.sbar[bath_number, path[i]]
-                end
-                influence_exponent += real(η.η0m[num_time-1]) * state_values.Δs[bath_number, path[1]] + 2im * imag(η.η0m[num_time-1]) * state_values.sbar[bath_number, path[1]]
-                return exp(-Δsfinal * influence_exponent)
-            end
-        else
-            if terminal
-                influence_exponent = real(η.η00) * Δsfinal + 2im * imag(η.η00) * state_values.sbar[bath_number, path[end]]
-                for i = 1:num_time-1
-                    influence_exponent += real(η.η0m[num_time-i]) * state_values.Δs[bath_number, path[i]] + 2im * imag(η.η0m[num_time-i]) * state_values.sbar[bath_number, path[i]]
-                end
-                return exp(-Δsfinal * influence_exponent)
-            else
-                influence_exponent = real(η.ηmm) * Δsfinal + 2im * imag(η.ηmm) * state_values.sbar[bath_number, path[end]]
-                for i = 1:num_time-1
-                    influence_exponent += real(η.ηmn[num_time-i]) * state_values.Δs[bath_number, path[i]] + 2im * imag(η.ηmn[num_time-i]) * state_values.sbar[bath_number, path[i]]
-                end
-                return exp(-Δsfinal * influence_exponent)
-            end
+        inft = real(η.η00) * Δsfinal + 2im * imag(η.η00) * state_values.sbar[bath_number, path[end]]
+        infnt = real(η.ηmm) * Δsfinal + 2im * imag(η.ηmm) * state_values.sbar[bath_number, path[end]]
+        start = in_memory ? 2 : 1
+        for i = start:num_time-1
+            inft += real(η.η0m[num_time-i]) * state_values.Δs[bath_number, path[i]] + 2im * imag(η.η0m[num_time-i]) * state_values.sbar[bath_number, path[i]]
+            infnt += real(η.ηmn[num_time-i]) * state_values.Δs[bath_number, path[i]] + 2im * imag(η.ηmn[num_time-i]) * state_values.sbar[bath_number, path[i]]
         end
+        if in_memory
+            inft += real(η.η0e[num_time-1]) * state_values.Δs[bath_number, path[1]] + 2im * imag(η.η0e[num_time-1]) * state_values.sbar[bath_number, path[1]]
+            infnt += real(η.η0m[num_time-1]) * state_values.Δs[bath_number, path[1]] + 2im * imag(η.η0m[num_time-1]) * state_values.sbar[bath_number, path[1]]
+        end
+        exp(-Δsfinal * infnt), exp(-Δsfinal * inft)
     end
 end
-
-function get_influence(ζ::EtaCoefficients.ZetaCoeffs, bath_number::Int, state_values::States, path::Vector{UInt64}, srefs::Vector{Float64}, terminal::Bool, in_memory::Bool, tindex::Int)
+function get_influence(ζ::EtaCoefficients.ZetaCoeffs, bath_number::Int, state_values::States, path::Vector{UInt64}, srefs::AbstractVector{Float64}, in_memory::Bool, tindex::Int)
     @inbounds begin
         Δsfinal = state_values.Δs[bath_number, path[end]]
         if Δsfinal == 0
-            return 1
+            return one(ComplexF64), one(ComplexF64)
         end
         num_time = length(path)
         sbar_diff_next = state_values.sbar[bath_number, path[1:end-1]] .- srefs[tindex-num_time+2:tindex]
-        # sbar_diff_next = terminal ? state_values.sbar[bath_number, path[1:end-1]] .- srefs[tindex-num_time+2:tindex] : state_values.sbar[bath_number, path] .- srefs[tindex-num_time+2:tindex+1]
         sbar_diff_prev = in_memory ? state_values.sbar[bath_number, path[2:end]] .- srefs[1:tindex] : state_values.sbar[bath_number, path[1:end]] .- srefs[max(tindex-num_time+1,1):tindex]
+
+        inft = ζ.ζ00 * sbar_diff_prev[end]
+        infnt = ζ.ζmm[1] * sbar_diff_prev[end]
+        start = in_memory ? 2 : 1
+        for i = start:num_time-1
+            inft += ζ.ζme[num_time-i, 1] * sbar_diff_prev[i]
+            inft += ζ.ζme[num_time-i, 2] * sbar_diff_next[i]
+            infnt += ζ.ζmn[num_time-i, 1] * sbar_diff_prev[i]
+            infnt += ζ.ζmn[num_time-i, 2] * sbar_diff_next[i]
+        end
         if in_memory
             @assert num_time == tindex+1
-            if terminal
-                influence_exponent = ζ.ζ00 * sbar_diff_prev[end]
-                for i = 2:num_time-1
-                    influence_exponent += ζ.ζme[num_time-i, 1] * sbar_diff_prev[i]
-                    influence_exponent += ζ.ζme[num_time-i, 2] * sbar_diff_next[i]
-                end
-                influence_exponent += ζ.ζ0e[num_time-1] * sbar_diff_next[1]
-                return exp(1im * Δsfinal * influence_exponent + 1im * ζ.ζmm[2] * state_values.Δs[bath_number, path[end-1]] * sbar_diff_next[end])
-            else
-                influence_exponent = ζ.ζmm[1] * sbar_diff_prev[end]
-                # influence_exponent += ζ.ζmm[2] * sbar_diff_next[end]
-                for i = 2:num_time-1
-                    influence_exponent += ζ.ζmn[num_time-i, 1] * sbar_diff_prev[i]
-                    influence_exponent += ζ.ζmn[num_time-i, 2] * sbar_diff_next[i]
-                end
-                influence_exponent += ζ.ζ0m[num_time-1] * sbar_diff_next[1]
-                return exp(1im * Δsfinal * influence_exponent)
-            end
-        else
-            if terminal
-                influence_exponent = ζ.ζ00 * sbar_diff_prev[end]
-                for i = 1:num_time-1
-                    influence_exponent += ζ.ζme[num_time-i, 1] * sbar_diff_prev[i]
-                    influence_exponent += ζ.ζme[num_time-i, 2] * sbar_diff_next[i]
-                end
-                return exp(1im * Δsfinal * influence_exponent + 1im * ζ.ζmm[2] * state_values.Δs[bath_number, path[end-1]] * sbar_diff_next[end])
-                # return exp(1im * Δsfinal * influence_exponent)
-            else
-                influence_exponent = ζ.ζmm[1] * sbar_diff_prev[end] 
-                # influence_exponent += ζ.ζmm[2] * sbar_diff_next[end]
-                for i = 1:num_time-1
-                    influence_exponent += ζ.ζmn[num_time-i, 1] * sbar_diff_prev[i]
-                    influence_exponent += ζ.ζmn[num_time-i, 2] * sbar_diff_next[i]
-                end
-                return exp(1im * Δsfinal * influence_exponent)
-            end
+            inft += ζ.ζ0e[num_time-1] * sbar_diff_next[1]
+            infnt += ζ.ζ0m[num_time-1] * sbar_diff_next[1]
         end
+        exp(1im * Δsfinal * infnt), exp(1im * Δsfinal * inft + 1im * ζ.ζmm[2] * state_values.Δs[bath_number, path[end-1]] * sbar_diff_next[end])
     end
 end
-
-get_influence(η::AbstractVector{EtaCoefficients.EtaCoeffs}, state_values::States, path::Vector{UInt64}, srefs::AbstractMatrix{Float64}, terminal::Bool, in_memory::Bool, tindex::Int) = prod([get_influence(bη, bn, state_values, path, terminal, in_memory) for (bn, bη) in enumerate(η)])
-get_influence(ζ::AbstractVector{EtaCoefficients.ZetaCoeffs}, state_values::States, path::Vector{UInt64}, srefs::AbstractMatrix{Float64}, terminal::Bool, in_memory::Bool, tindex::Int) = prod([get_influence(bζ, bn, state_values, path, srefs[:, bn], terminal, in_memory, tindex) for (bn, bζ) in enumerate(ζ)])
+function get_influence(η::AbstractVector{EtaCoefficients.EtaCoeffs}, state_values::States, path::Vector{UInt64}, srefs::AbstractMatrix{Float64}, in_memory::Bool, tindex::Int)
+    nonterminfl = 1
+    terminfl = 1
+    for (bn, bη) in enumerate(η)
+        infnt, inft = get_influence(bη, bn, state_values, path, in_memory)
+        nonterminfl *= infnt
+        terminfl *= inft
+    end
+    nonterminfl, terminfl
+end
+function get_influence(ζ::AbstractVector{EtaCoefficients.ZetaCoeffs}, state_values::States, path::Vector{UInt64}, srefs::AbstractMatrix{Float64}, in_memory::Bool, tindex::Int)
+    nonterminfl = 1
+    terminfl = 1
+    for (bn, bζ) in enumerate(ζ)
+        infnt, inft = get_influence(bζ, bn, state_values, path, @view(srefs[:, bn]), in_memory, tindex)
+        nonterminfl *= infnt
+        terminfl *= inft
+    end
+    nonterminfl, terminfl
+end
 
 """
 Filtration parameters for different versions of QuAPI. Currently has a threshold for magnitude-based filtering, with a default value of `cutoff=0` (no filtering).
@@ -260,13 +233,14 @@ function propagate(; fbU::Union{Nothing, AbstractArray{ComplexF64,3}}=nothing, J
         η = isnothing(β) ? [EtaCoefficients.calculate_ζ(jw; dt, kmax) for jw in Jw] : [EtaCoefficients.calculate_η(jw; β, dt, kmax) for jw in Jw]
     end
     @assert length(η) == size(svec, 1)
+    cutoff2 = extraargs.cutoff^2
     nbath = length(η)
     sdim = size(ρ0, 1)
     ρs = zeros(ComplexF64, ntimes + 1, sdim, sdim)
     ρs[1, :, :] = ρ0
     if !isnothing(output)
         Utilities.check_or_insert_value(output, "rho", ρs)
-        # Utilities.check_or_insert_value(output, "time_taken", zeros(Float64, ntimes))
+        Utilities.check_or_insert_value(output, "time_taken", zeros(Float64, ntimes))
         Utilities.check_or_insert_value(output, "num_paths", zeros(Int64, ntimes))
     end
     state_values, paths = typeof(η)==Vector{EtaCoefficients.EtaCoeffs} ? setup_simulation(ρ0, η, svec, extraargs) : setup_simulation(ρ0, η, svec, extraargs, Propagators.get_reference(Propagators.ReferenceChoice(kwargs[:reference_choice])(), ρ0, kwargs[:solvent]))
@@ -280,54 +254,56 @@ function propagate(; fbU::Union{Nothing, AbstractArray{ComplexF64,3}}=nothing, J
     if verbose
         @info "Starting propagation within memory"
     end
-    tmprho = zeros(ComplexF64, sdim2)
     tmpfbU = zeros(ComplexF64, sdim2, sdim2)
     srefs = zeros(ntimes+1, nbath)
     if isnothing(fbU) && typeof(η) == Vector{EtaCoefficients.ZetaCoeffs}
-        ps = kwargs[:ps]
-        solvent = kwargs[:solvent]
-        Hamiltonian = kwargs[:Hamiltonian]
-        classical_dt = kwargs[:classical_dt]
-        reference_choice = kwargs[:reference_choice]
+        ps = kwargs[:ps] :: Solvents.PhaseSpace
+        solvent = kwargs[:solvent] :: Solvents.Solvent
+        Hamiltonian = kwargs[:Hamiltonian] :: AbstractMatrix{ComplexF64}
+        classical_dt = kwargs[:classical_dt] :: Float64
+        reference_choice = kwargs[:reference_choice] :: String
     end
+    new_paths = Vector{Path{ComplexF64}}()
     for i = 1:min(kmax, ntimes)
-        if verbose
-            @info "Step = $(i), #paths = $(length(paths))"
-        end
-        if isnothing(fbU) && typeof(η) == Vector{EtaCoefficients.ZetaCoeffs}
-            U, sref, ps = Propagators.calculate_reference_propagators(; Hamiltonian, solvent, ps, classical_dt, ρ0=ρs[i, :, :], dt, ntimes=1, reference_choice)
-            tmpfbU .= U[1, :, :]
-            srefs[i, :] = sref[1, :]
-        else
-            tmpfbU .= fbU[i, :, :]
-            srefs[i, :] = zeros(1, nbath)
-        end
-        new_paths = Vector{Path{ComplexF64}}()
-        for path in paths
-            states = path.states
-            tmprho .= zero(ComplexF64)
-            @inbounds tmprho[states[end]] = 1.0
-            tmprho = tmpfbU * tmprho * path.amplitude
-            for (s, amp) in enumerate(tmprho)
-                tmpstates = deepcopy(states)
-                push!(tmpstates, s)
-                amplitude = amp * get_influence(η, state_values, tmpstates, srefs[1:i, :], false, true, i)
-                if eacp
-                    @inbounds ρs[i+1, state_values.forward_ind[s], state_values.backward_ind[s]] += amp
-                    amplitude = amp
-                else
-                    @inbounds ρs[i+1, state_values.forward_ind[s], state_values.backward_ind[s]] += amp * get_influence(η, state_values, tmpstates, srefs[1:i, :], true, true, i)
-                end
-                if abs(amplitude) > extraargs.cutoff
-                    push!(new_paths, Path{ComplexF64}(tmpstates, amplitude, sdim2))
+        _, time_taken, memory_allocated, gc_time, _ = @timed begin
+            if isnothing(fbU) && typeof(η) == Vector{EtaCoefficients.ZetaCoeffs}
+                U, sref, ps = Propagators.calculate_reference_propagators(; Hamiltonian, solvent, ps, classical_dt, ρ0=@view(ρs[i, :, :]), dt, ntimes=1, reference_choice)
+                tmpfbU .= @view U[1, :, :]
+                srefs[i, :] .= @view sref[1, :]
+            else
+                tmpfbU .= @view fbU[i, :, :]
+                srefs[i, :] .= 0.0
+            end
+            sizehint!(new_paths, length(paths) * sdim2)
+            n = length(paths[1].states)
+            tmpstates = Vector{UInt64}(undef, n+1)
+            for path in paths
+                states = path.states
+                copyto!(tmpstates, 1, states, 1, n) 
+                for s = 1:sdim2
+                    tmpstates[end] = s
+                    amp = path.amplitude * tmpfbU[s, states[end]]
+                    if eacp
+                        @inbounds ρs[i+1, state_values.forward_ind[s], state_values.backward_ind[s]] += amp
+                    else
+                        nonterminfl, terminfl = get_influence(η, state_values, tmpstates, @view(srefs[1:i, :]), true, i)
+                        @inbounds ρs[i+1, state_values.forward_ind[s], state_values.backward_ind[s]] += amp * terminfl
+                        amp *= nonterminfl
+                    end
+                    if abs2(amp) > cutoff2
+                        push!(new_paths, Path{ComplexF64}(copy(tmpstates), amp, sdim2))
+                    end
                 end
             end
+            paths, new_paths = new_paths, paths
+            empty!(new_paths)
         end
-        paths = new_paths
-        new_paths = nothing
+        if verbose
+            @info "Step = $(i); #paths = $(length(paths)); time = $(round(time_taken; digits=3)) sec; memory allocated = $(round(memory_allocated / 1024^3; digits=3)) GiB; gc time = $(round(gc_time; digits=3)) sec"
+        end
         if !isnothing(output)
             output["rho"][i+1, :, :] = ρs[i+1, :, :]
-            # output["time_taken"][i] = timetaken[i]
+            output["time_taken"][i] = time_taken
             output["num_paths"][i] = length(paths)
             flush(output)
         end
@@ -340,56 +316,57 @@ function propagate(; fbU::Union{Nothing, AbstractArray{ComplexF64,3}}=nothing, J
     max_length = Utilities.hash_path(path_max, sdim2)
     checked = repeat([false], max_length)
     tmat = zeros(ComplexF64, max_length)
+    tmpstates = Vector{UInt64}(undef, length(paths[1].states))
     for i = kmax+1:ntimes
-        if verbose
-            @info "Step = $(i), #paths = $(length(paths))"
-        end
-        if isnothing(fbU)
-            U, sref, ps = Propagators.calculate_reference_propagators(; Hamiltonian, solvent, ps, classical_dt, ρ0=ρs[i, :, :], dt, ntimes=1, reference_choice)
-            tmpfbU .= U[1, :, :]
-            srefs[i, :] = sref[1, :]
-        else
-            tmpfbU .= fbU[i, :, :]
-            srefs[i, :] = zeros(1, nbath)
-        end
-        tmat .= zero(ComplexF64)
-        for path in paths
-            trunc_path = path.states[2:end]
-            @inbounds tmat[Utilities.hash_path(trunc_path, sdim2)] += path.amplitude
-        end
-        new_paths = Vector{Path{ComplexF64}}()
-        checked .= false
-        for path in paths
-            @inbounds states = path.states[2:end]
-            hash_val = Utilities.hash_path(states, sdim2)
-            if checked[hash_val]
-                continue
+        _, time_taken, memory_allocated, gc_time, _ = @timed begin
+            if isnothing(fbU)
+                U, sref, ps = Propagators.calculate_reference_propagators(; Hamiltonian, solvent, ps, classical_dt, ρ0=@view(ρs[i, :, :]), dt, ntimes=1, reference_choice)
+                tmpfbU .= @view U[1, :, :]
+                srefs[i, :] .= @view sref[1, :]
             else
-                tmprho .= zero(ComplexF64)
-                @inbounds tmprho[states[end]] = 1.0
-                tmprho = tmpfbU * tmprho * tmat[hash_val]
-                for (s, amp) in enumerate(tmprho)
-                    tmpstates = deepcopy(states)
-                    push!(tmpstates, s)
-                    amplitude = amp * get_influence(η, state_values, tmpstates, srefs[1:i, :], false, false, i)
-                    if eacp
-                        @inbounds ρs[i+1, state_values.forward_ind[s], state_values.backward_ind[s]] += amp
-                        amplitude = amp
-                    else
-                        @inbounds ρs[i+1, state_values.forward_ind[s], state_values.backward_ind[s]] += amp * get_influence(η, state_values, tmpstates, srefs[1:i, :], true, false, i)
-                    end
-                    if abs(amplitude) > extraargs.cutoff
-                        push!(new_paths, Path{ComplexF64}(tmpstates, amplitude, sdim2))
-                    end
-                end
-                @inbounds checked[hash_val] = true
+                tmpfbU .= @view fbU[i, :, :]
+                srefs[i, :] .= 0.0
             end
+            tmat .= zero(ComplexF64)
+            for path in paths
+                trunc_path = @view path.states[2:end]
+                @inbounds tmat[Utilities.hash_path(trunc_path, sdim2)] += path.amplitude
+            end
+            checked .= false
+            for path in paths
+                @inbounds states = @view path.states[2:end]
+                hash_val = Utilities.hash_path(states, sdim2)
+                if checked[hash_val]
+                    continue
+                else
+                    n = length(states)
+                    copyto!(tmpstates, 1, states, 1, n) 
+                    for s = 1:sdim2
+                        tmpstates[end] = s
+                        amp = tmat[hash_val] * tmpfbU[s, states[end]]
+                        if eacp
+                            @inbounds ρs[i+1, state_values.forward_ind[s], state_values.backward_ind[s]] += amp
+                        else
+                            nonterminfl, terminfl = get_influence(η, state_values, tmpstates, @view(srefs[1:i, :]), false, i)
+                            @inbounds ρs[i+1, state_values.forward_ind[s], state_values.backward_ind[s]] += amp * terminfl
+                            amp *= nonterminfl
+                        end
+                        if abs2(amp) > cutoff2
+                            push!(new_paths, Path{ComplexF64}(copy(tmpstates), amp, sdim2))
+                        end
+                    end
+                    @inbounds checked[hash_val] = true
+                end
+            end
+            paths, new_paths = new_paths, paths
+            empty!(new_paths)
         end
-        paths = new_paths
-        new_paths = nothing
+        if verbose
+            @info "Step = $(i); #paths = $(length(paths)); time = $(round(time_taken; digits=3)) sec; memory allocated = $(round(memory_allocated / 1024^3; digits=3)) GiB; gc time = $(round(gc_time; digits=3)) sec"
+        end
         if !isnothing(output)
             output["rho"][i+1, :, :] = ρs[i+1, :, :]
-            # output["time_taken"][i] = timetaken[i]
+            output["time_taken"][i] = time_taken
             output["num_paths"][i] = length(paths)
             flush(output)
         end

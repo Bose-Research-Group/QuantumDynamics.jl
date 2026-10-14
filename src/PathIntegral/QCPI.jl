@@ -20,7 +20,7 @@ function propagate(; Hamiltonian::Matrix{ComplexF64}, Jw::AbstractVector{<:Spect
     nthreads = Threads.nthreads()
     mutlock = ReentrantLock()
     Threads.@threads for ps in solvent
-        _, ρ = path_integral_routine(; β=solvent.β, Hamiltonian, solvent, ps, η=ζ, ρ0, dt, classical_dt, ntimes, kmax, extraargs, svec, reference_choice, verbose)
+        _, ρ = path_integral_routine(; β=solvent.β, Hamiltonian, solvent, ps, η=ζ, ρ0, dt, classical_dt, ntimes, kmax, extraargs, svec, reference_choice, verbose=false)
         lock(mutlock) do
             ρs .+= ρ
             ndone += 1
