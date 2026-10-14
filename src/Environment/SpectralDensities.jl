@@ -155,6 +155,10 @@ evaluate(sd::UnderdampedBrownian, ω::Real) = 2 * sd.λ / sd.Δs^2 * sign(ω) * 
 eval_spectrum_at_zero(sd::UnderdampedBrownian) = 4 * sd.λ * sd.γ / (sd.Δs^2 * sd.ω0^2)
 Δk_target(sd::SpectralDensities.UnderdampedBrownian, β) = 2 * sd.λ * sd.γ / (sd.Δs^2 * sd.ω0^2 * β)
 
+characteristic_scale(sd::SpectralDensities.ExponentialCutoff)     = sd.ωc
+characteristic_scale(sd::SpectralDensities.DrudeLorentz)          = sd.γ
+characteristic_scale(sd::SpectralDensities.UnderdampedBrownian)   = max(sd.γ, sd.ω0)
+
 """
     tabulate(sd::AnalyticalSpectralDensity, full_real::Bool=true)
 Returns a table with `ω` and `J(ω)` for ω between -ωmax to ωmax if `full_real` is true. Otherwise the table ranges for ω between 0 and ωmax with `sd.npoints`.
@@ -170,6 +174,11 @@ function tabulate(sd::AnalyticalSpectralDensity, full_real::Bool=true)
     end
 end
 
+function tabulate_logspace(sd::T; lo_factor::Float64=1e-6) where T<:SpectralDensities.AnalyticalSpectralDensity
+    ωc_scale = characteristic_scale(sd)
+    ω = exp10.(range(log10(ωc_scale * lo_factor), log10(sd.ωmax), length=sd.npoints))
+    ω, SpectralDensities.evaluate.(Ref(sd), ω)
+end
 
 """
     SpectralDensityTable <: ContinuousSpectralDensity

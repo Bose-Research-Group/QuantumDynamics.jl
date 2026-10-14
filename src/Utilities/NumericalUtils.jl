@@ -158,7 +158,7 @@ function aaa(X, Y; tol=1e-10, mmax=60)
     xj, yj, w, filter(isfinite, λ)   # poles x_k
 end
 
-function aaa_poles_pruned(x, y; tol=1e-6, rtol=1e-6, mmax=60)
+function aaa_poles_pruned(x, y; tol=1e-6, rtol=1e-10, mmax=60)
     _, _, _, xk = aaa(x, y; tol, mmax)
     Φ = 1 ./ (x .- transpose(xk))
     r = Φ \ complex.(y)

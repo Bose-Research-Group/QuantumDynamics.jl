@@ -44,10 +44,11 @@ end
 Returns an ExponentialDecomposition of `sd` with an accuracy of `tol`.  For Drude-Lorentz and UnderdampedBrownian baths, it returns the analytic results.
 """
 function decompose(sd::T, tol::Float64=1e-10) where T<:SpectralDensities.SpectralDensity
-    ω, jw = SpectralDensities.tabulate(sd, false)
+    ω, jw = T <: SpectralDensities.AnalyticalSpectralDensity ?
+                SpectralDensities.tabulate_logspace(sd) : SpectralDensities.tabulate(sd, false)
     xk, res = Utilities.aaa_poles_pruned(ω.^2, jw ./ ω; tol)
     poles = [imag(s)<0 ? s : -s for s in sqrt.(complex(xk))]
-    ν = 1.0im * poles
+    ν = 1.0im .* poles
     c = [-1.0im * r / 2 for r in res]
     ctilde = similar(c)
     n = length(poles)
