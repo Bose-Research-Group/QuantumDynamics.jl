@@ -1,7 +1,7 @@
 module HEOMStructure
 
 using LinearAlgebra: mul!, axpy!
-using ..SpectralDensities, ..Solvents, ..Utilities
+using ..SpectralDensities, ..SpectralDensityDecompositions, ..Solvents, ..Utilities
 
 """
     get_vecs(len::Int, L::Int)
@@ -30,7 +30,7 @@ function get_mode_map(decompositions)
 end
 
 """
-    setup_simulation(decompositions::Vector{SpectralDensities.ExponentialDecomposition}, Lmax::Int)
+    setup_simulation(decompositions::Vector{SpectralDensityDecompositions.ExponentialDecomposition}, Lmax::Int)
 
 Sets up the HEOM hierarchy for a collection of bath exponential decompositions.
 
@@ -61,7 +61,7 @@ The flattening of exponential modes allows the hierarchy implementation to
 handle arbitrary spectral density decompositions, including baths with
 different numbers of exponential terms and complex-conjugate pole pairs.
 """
-function setup_simulation(decompositions::Vector{SpectralDensities.ExponentialDecomposition}, Lmax::Int)
+function setup_simulation(decompositions::Vector{SpectralDensityDecompositions.ExponentialDecomposition}, Lmax::Int)
     # Map flattened exponential index -> (bath index, local exponential index)
     mode_map = get_mode_map(decompositions)
     num_modes = length(mode_map)
@@ -129,7 +129,7 @@ struct HEOMParams{Ltype <: Union{Nothing, Vector{Matrix{ComplexF64}}}, EField <:
     npluslocs::Matrix{Int}
     nminuslocs::Matrix{Int}
     mode_map::Vector{Tuple{Int,Int}}
-    decomps::Vector{SpectralDensities.ExponentialDecomposition}
+    decomps::Vector{SpectralDensityDecompositions.ExponentialDecomposition}
     Δk::Vector{Float64}
     β::Float64
     decay::Vector{ComplexF64}

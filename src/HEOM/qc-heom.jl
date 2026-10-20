@@ -28,12 +28,12 @@ function single_propagate(phasespacepoints, solvent, Hamiltonian, sops, nveclist
     ρs, Npoints
 end
 
-function propagate(; Hamiltonian::Matrix{ComplexF64}, Jw::AbstractVector{<:SpectralDensities.SpectralDensity}, solvent::Solvents.Solvent, ρ0::Matrix{ComplexF64}, β::Real, dt::Real, ntimes::Int, num_modes::Int, Lmax::Int, sops::Vector{Matrix{ComplexF64}}, extraargs::Utilities.DiffEqArgs=Utilities.DiffEqArgs(), verbose::Bool=false)
+function propagate(; Hamiltonian::Matrix{ComplexF64}, Jw::AbstractVector{<:SpectralDensities.SpectralDensity}, solvent::Solvents.Solvent, ρ0::Matrix{ComplexF64}, β::Real, dt::Real, ntimes::Int, tol::Float64, Lmax::Int, sops::Vector{Matrix{ComplexF64}}, extraargs::Utilities.DiffEqArgs=Utilities.DiffEqArgs(), verbose::Bool=false)
     nbaths = length(Jw)
-    decomps = Vector{SpectralDensities.ExponentialDecomposition}(undef, length(Jw))
+    decomps = Vector{SpectralDensityDecompositions.ExponentialDecomposition}(undef, length(Jw))
     for (i, jw) in enumerate(Jw)
         # @assert typeof(jw) == SpectralDensities.DrudeLorentz "HEOM has only been implemented for the Drude-Lorentz spectral density."
-        decomps[i] = SpectralDensities.imaginary_response_decomposition(jw, num_modes)
+        decomps[i] = SpectralDensityDecompositions.decompose(jw, tol)
         @info "Decomposed bath number $i."
     end
     nveclist, npluslocs, nminuslocs, mode_map = HEOMStructure.setup_simulation(decomps, Lmax)
